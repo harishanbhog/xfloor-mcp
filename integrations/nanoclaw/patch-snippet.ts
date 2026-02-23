@@ -17,6 +17,8 @@ export const xfloorPatch = {
       env: {
         XFLOOR_BASE_URL: "https://appfloor.in",
         XFLOOR_TIMEOUT_SECONDS: "30",
+        XFLOOR_DEFAULT_USER_ID: "nanoclaw-user",
+        XFLOOR_DEFAULT_APP_ID: "nanoclaw-app",
       },
     },
 
@@ -24,7 +26,11 @@ export const xfloorPatch = {
     // xfloor: {
     //   transport: "streamable-http",
     //   url: "https://your-domain.com/mcp",
-    //   headers: { Authorization: "Bearer <your-token>" },
+    //   headers: {
+//     Authorization: "Bearer <your-token>",
+//     "X-XFloor-User-Id": "<your-user-id>",
+//     "X-XFloor-App-Id": "<your-app-id>",
+//   },
     // },
   },
 

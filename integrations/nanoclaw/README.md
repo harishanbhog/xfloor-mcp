@@ -23,6 +23,8 @@ mcpServers: {
     env: {
       XFLOOR_BASE_URL: "https://appfloor.in",
       XFLOOR_TIMEOUT_SECONDS: "30",
+      XFLOOR_DEFAULT_USER_ID: "nanoclaw-user",
+      XFLOOR_DEFAULT_APP_ID: "nanoclaw-app",
     },
   },
 }
@@ -38,6 +40,8 @@ mcpServers: {
     env: {
       XFLOOR_BASE_URL: "https://appfloor.in",
       XFLOOR_TIMEOUT_SECONDS: "30",
+      XFLOOR_DEFAULT_USER_ID: "nanoclaw-user",
+      XFLOOR_DEFAULT_APP_ID: "nanoclaw-app",
     },
   },
 }
@@ -56,6 +60,8 @@ mcpServers: {
     url: "https://your-domain.com/mcp",
     headers: {
       Authorization: "Bearer <your-token>",
+      "X-XFloor-User-Id": "<your-user-id>",
+      "X-XFloor-App-Id": "<your-app-id>",
     },
   },
 }
@@ -99,3 +105,6 @@ These prompts typically map to:
 
 - search -> `xfloor_query_memory`
 - post note -> `xfloor_create_event`
+
+
+Note: xfloor-mcp requires both user identity headers (`X-XFloor-User-Id`, `X-XFloor-App-Id`) for HTTP mode, or defaults via `XFLOOR_DEFAULT_USER_ID` / `XFLOOR_DEFAULT_APP_ID` for local command-based mode.

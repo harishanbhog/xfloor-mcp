@@ -8,6 +8,8 @@ from typing import Any
 
 import httpx
 
+from .request_context import get_app_id, get_auth_token, get_user_id
+
 
 class XFloorClient:
     """Async HTTP wrapper around xFloor APIs."""
@@ -21,11 +23,18 @@ class XFloorClient:
             raise ValueError("Missing auth token. Provide a valid Bearer token.")
         return {"Authorization": f"Bearer {auth_token.strip()}"}
 
+    def _context_params(self) -> dict[str, str]:
+        user_id = get_user_id()
+        app_id = get_app_id()
+        if not user_id or not app_id:
+            raise ValueError("Missing xFloor context. user_id/app_id must be set from headers or defaults.")
+        return {"user_id": user_id, "app_id": app_id}
+
     async def _request_json(
         self,
         method: str,
         path: str,
-        auth_token: str,
+        auth_token: str | None = None,
         *,
         params: dict[str, Any] | None = None,
         json_body: dict[str, Any] | None = None,
@@ -33,12 +42,14 @@ class XFloorClient:
         files: list[tuple[str, tuple[str, bytes, str]]] | None = None,
     ) -> dict[str, Any]:
         url = f"{self._base_url}/{path.lstrip('/')}"
+        resolved_token = auth_token or get_auth_token()
+        merged_params = {**(params or {}), **self._context_params()}
         async with httpx.AsyncClient(timeout=self._timeout_seconds) as client:
             response = await client.request(
                 method=method.upper(),
                 url=url,
-                headers=self._headers(auth_token),
-                params=params,
+                headers=self._headers(resolved_token or ""),
+                params=merged_params,
                 json=json_body,
                 data=data,
                 files=files,
@@ -49,7 +60,7 @@ class XFloorClient:
 
     async def query_memory(
         self,
-        auth_token: str,
+        auth_token: str | None = None,
         *,
         user_id: str,
         query: str,
@@ -58,7 +69,6 @@ class XFloorClient:
         k: int | None = None,
         include_metadata: str = "0",
         summary_needed: str = "0",
-        app_id: str | None = None,
     ) -> dict[str, Any]:
         body: dict[str, Any] = {
             "user_id": user_id,
@@ -71,21 +81,16 @@ class XFloorClient:
             body["filters"] = filters
         if k is not None:
             body["k"] = k
-        if app_id:
-            body["app_id"] = app_id
         return await self._request_json("POST", "/agent/memory/query", auth_token, json_body=body)
 
     async def create_event(
         self,
-        auth_token: str,
+        auth_token: str | None = None,
         *,
         input_info: str,
-        app_id: str | None = None,
         files: list[dict[str, str]] | None = None,
     ) -> dict[str, Any]:
         form_data: dict[str, str] = {"input_info": input_info}
-        if app_id:
-            form_data["app_id"] = app_id
 
         request_files: list[tuple[str, tuple[str, bytes, str]]] = []
         for item in files or []:
@@ -105,10 +110,10 @@ class XFloorClient:
             files=request_files or None,
         )
 
-    async def recent_events(self, auth_token: str, *, params: dict[str, Any]) -> dict[str, Any]:
+    async def recent_events(self, auth_token: str | None = None, *, params: dict[str, Any]) -> dict[str, Any]:
         return await self._request_json("GET", "/api/memory/recent/events", auth_token, params=params)
 
-    async def get_floor_info(self, auth_token: str, *, floor_id: str) -> dict[str, Any]:
+    async def get_floor_info(self, auth_token: str | None = None, *, floor_id: str) -> dict[str, Any]:
         floor_id = floor_id.strip()
         if not floor_id:
             raise ValueError("floor_id cannot be empty.")

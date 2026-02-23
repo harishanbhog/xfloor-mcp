@@ -6,6 +6,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field, field_validator
 
+from .request_context import get_auth_token
 from .xfloor_client import XFloorClient
 
 
@@ -17,8 +18,7 @@ class XFloorQueryMemoryInput(BaseModel):
     k: int | None = Field(default=None, ge=1)
     include_metadata: str = Field(default="0", pattern="^[01]$")
     summary_needed: str = Field(default="0", pattern="^[01]$")
-    app_id: str | None = None
-    auth_token: str | None = Field(default=None, description="Optional override token; normally read from MCP request auth header")
+    auth_token: str | None = Field(default=None, description="Optional override token; usually resolved from Authorization header")
 
 
 class XFloorFileInput(BaseModel):
@@ -29,15 +29,12 @@ class XFloorFileInput(BaseModel):
 
 class XFloorCreateEventInput(BaseModel):
     input_info: str = Field(description="JSON string including floor_id, block_id, user_id, title, description")
-    app_id: str | None = None
     files: list[XFloorFileInput] | None = None
     auth_token: str | None = None
 
 
 class XFloorRecentEventsInput(BaseModel):
     floor_id: str | None = None
-    user_id: str | None = None
-    app_id: str | None = None
     page: int | None = Field(default=None, ge=1)
     limit: int | None = Field(default=None, ge=1, le=200)
     start_time: str | None = None
@@ -68,7 +65,7 @@ class XFloorWaitForIngestionInput(BaseModel):
 
 
 def _extract_auth_token(ctx: Any, token_override: str | None) -> str:
-    """Resolve auth token from explicit input or MCP request headers."""
+    """Resolve auth token from explicit input, request headers, or context var."""
 
     if token_override and token_override.strip():
         return token_override.strip()
@@ -85,10 +82,12 @@ def _extract_auth_token(ctx: Any, token_override: str | None) -> str:
         if not headers:
             continue
         header = headers.get("authorization") or headers.get("Authorization")
-        if not header:
-            continue
-        if header.lower().startswith("bearer "):
+        if header and header.lower().startswith("bearer "):
             return header[7:].strip()
+
+    context_token = get_auth_token()
+    if context_token:
+        return context_token
 
     raise ValueError("Missing Bearer auth token. Set Authorization header or provide auth_token.")
 
@@ -114,7 +113,6 @@ def register_tools(mcp: Any, client: XFloorClient) -> None:
             k=input.k,
             include_metadata=input.include_metadata,
             summary_needed=input.summary_needed,
-            app_id=input.app_id,
         )
         return _compact(result)
 
@@ -123,14 +121,14 @@ def register_tools(mcp: Any, client: XFloorClient) -> None:
         token = _extract_auth_token(ctx, input.auth_token)
         client.validate_input_info(input.input_info)
         files = [file.model_dump() for file in input.files] if input.files else None
-        result = await client.create_event(token, input_info=input.input_info, app_id=input.app_id, files=files)
+        result = await client.create_event(token, input_info=input.input_info, files=files)
         return _compact(result)
 
     @mcp.tool(name="xfloor_recent_events", description="Get recent xFloor memory events")
     async def xfloor_recent_events(input: XFloorRecentEventsInput, ctx: Any = None) -> dict[str, Any]:
         token = _extract_auth_token(ctx, input.auth_token)
         params: dict[str, Any] = {}
-        for key in ["floor_id", "user_id", "app_id", "page", "limit", "start_time", "end_time", "event_type"]:
+        for key in ["floor_id", "page", "limit", "start_time", "end_time", "event_type"]:
             value = getattr(input, key)
             if value is not None:
                 params[key] = value

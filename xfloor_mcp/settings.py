@@ -28,6 +28,8 @@ class Settings(BaseSettings):
 
     xfloor_base_url: str = Field(default="https://appfloor.in", alias="XFLOOR_BASE_URL")
     xfloor_timeout_seconds: float = Field(default=15.0, alias="XFLOOR_TIMEOUT_SECONDS")
+    xfloor_default_user_id: str | None = Field(default=None, alias="XFLOOR_DEFAULT_USER_ID")
+    xfloor_default_app_id: str | None = Field(default=None, alias="XFLOOR_DEFAULT_APP_ID")
 
     @field_validator("cors_allow_origins", "cors_allow_methods", "cors_allow_headers", mode="before")
     @classmethod

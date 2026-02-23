@@ -5,10 +5,12 @@ from __future__ import annotations
 from contextlib import asynccontextmanager
 from typing import Any, AsyncIterator
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from mcp.server.fastmcp import FastMCP
 
+from .request_context import set_app_id, set_auth_token, set_user_id
 from .settings import Settings, get_settings
 from .tools import register_tools
 from .xfloor_client import XFloorClient
@@ -31,6 +33,16 @@ def _build_mcp_app(mcp: FastMCP) -> Any:
         except TypeError:
             return mcp.http_app()
     raise RuntimeError("Installed mcp package does not expose Streamable HTTP app builders")
+
+
+def _extract_bearer(authorization: str | None) -> str | None:
+    if not authorization:
+        return None
+    value = authorization.strip()
+    if not value.lower().startswith("bearer "):
+        return None
+    token = value[7:].strip()
+    return token or None
 
 
 @asynccontextmanager
@@ -76,6 +88,44 @@ def create_http_app(settings: Settings) -> FastAPI:
         allow_headers=settings.cors_allow_headers,
         expose_headers=["Mcp-Session-Id"],
     )
+
+    @app.middleware("http")
+    async def xfloor_context_middleware(request: Request, call_next):
+        is_mcp_path = request.url.path == "/mcp" or request.url.path.startswith("/mcp/")
+        if not is_mcp_path:
+            return await call_next(request)
+
+        token = _extract_bearer(request.headers.get("Authorization"))
+        user_id = request.headers.get("X-XFloor-User-Id") or settings.xfloor_default_user_id
+        app_id = request.headers.get("X-XFloor-App-Id") or settings.xfloor_default_app_id
+
+        missing: list[str] = []
+        if not token:
+            missing.append("Authorization: Bearer <token>")
+        if not user_id:
+            missing.append("X-XFloor-User-Id")
+        if not app_id:
+            missing.append("X-XFloor-App-Id")
+
+        if missing:
+            return JSONResponse(
+                status_code=400,
+                content={
+                    "error": "Missing required xFloor headers",
+                    "missing": missing,
+                    "hint": "Set required headers or configure XFLOOR_DEFAULT_USER_ID / XFLOOR_DEFAULT_APP_ID for local development.",
+                },
+            )
+
+        set_auth_token(token)
+        set_user_id(user_id)
+        set_app_id(app_id)
+        try:
+            return await call_next(request)
+        finally:
+            set_auth_token(None)
+            set_user_id(None)
+            set_app_id(None)
 
     @app.get("/healthz")
     async def healthz() -> dict[str, bool]:

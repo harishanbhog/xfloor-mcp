@@ -19,6 +19,8 @@ config.mcpServers = {
       ...(config.mcpServers?.xfloor?.env ?? {}),
       XFLOOR_BASE_URL: process.env.XFLOOR_BASE_URL ?? "https://appfloor.in",
       XFLOOR_TIMEOUT_SECONDS: process.env.XFLOOR_TIMEOUT_SECONDS ?? "30",
+      XFLOOR_DEFAULT_USER_ID: process.env.XFLOOR_DEFAULT_USER_ID ?? "nanoclaw-user",
+      XFLOOR_DEFAULT_APP_ID: process.env.XFLOOR_DEFAULT_APP_ID ?? "nanoclaw-app",
     },
   },
 };

@@ -48,11 +48,15 @@ CORS_ALLOW_HEADERS=*
 
 XFLOOR_BASE_URL=https://appfloor.in
 XFLOOR_TIMEOUT_SECONDS=30
+XFLOOR_DEFAULT_USER_ID=local-dev-user
+XFLOOR_DEFAULT_APP_ID=local-dev-app
 ```
 
-Auth behavior:
+Auth + identity behavior:
 - MCP requests must include `Authorization: Bearer <token>`.
-- That bearer token is forwarded to xFloor APIs.
+- In HTTP mode, `X-XFloor-User-Id` and `X-XFloor-App-Id` are required.
+- If headers are absent, local-dev fallbacks can be set via `XFLOOR_DEFAULT_USER_ID` and `XFLOOR_DEFAULT_APP_ID`.
+- Token is forwarded as Bearer auth and `user_id` / `app_id` are attached to every xFloor request as query params.
 
 ---
 
@@ -159,6 +163,8 @@ In Inspector:
 - Transport: **Streamable HTTP**
 - URL: `https://your-real-domain.com/mcp`
 - Header: `Authorization: Bearer <your-token>`
+- Header: `X-XFloor-User-Id: <your-user-id>`
+- Header: `X-XFloor-App-Id: <your-app-id>`
 
 Then run tools:
 
