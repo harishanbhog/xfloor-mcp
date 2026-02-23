@@ -136,7 +136,7 @@ class XFloorClient:
         except json.JSONDecodeError as exc:
             raise ValueError("input_info must be a valid JSON string.") from exc
 
-        required = {"floor_id", "block_id", "user_id", "title", "description"}
+        required = {"floor_id", "block_id", "title", "description"}
         missing = sorted(key for key in required if not payload.get(key))
         if missing:
             raise ValueError(f"input_info is missing required field(s): {', '.join(missing)}")

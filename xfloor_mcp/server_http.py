@@ -24,12 +24,12 @@ def _build_mcp_app(mcp: FastMCP) -> Any:
 
     if hasattr(mcp, "streamable_http_app"):
         try:
-            return mcp.streamable_http_app(path="/")
+            return mcp.streamable_http_app(path="/mcp")
         except TypeError:
             return mcp.streamable_http_app()
     if hasattr(mcp, "http_app"):
         try:
-            return mcp.http_app(path="/")
+            return mcp.http_app(path="/mcp")
         except TypeError:
             return mcp.http_app()
     raise RuntimeError("Installed mcp package does not expose Streamable HTTP app builders")
@@ -131,7 +131,7 @@ def create_http_app(settings: Settings) -> FastAPI:
     async def healthz() -> dict[str, bool]:
         return {"ok": True}
 
-    app.mount("/mcp", _build_mcp_app(mcp))
+    app.mount("/", _build_mcp_app(mcp))
     return app
 
 
