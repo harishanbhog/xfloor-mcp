@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import base64
 import json
-from typing import Any
+from typing import Any, IO
 
 import httpx
 
@@ -39,11 +39,14 @@ class XFloorClient:
         params: dict[str, Any] | None = None,
         json_body: dict[str, Any] | None = None,
         data: dict[str, Any] | None = None,
-        files: list[tuple[str, tuple[str, bytes, str]]] | None = None,
+        files: list[tuple[str, tuple[str | None, str | bytes | IO[Any]] | tuple[str, bytes, str]]] | None = None,
+        include_context_params: bool = True,
     ) -> dict[str, Any]:
         url = f"{self._base_url}/{path.lstrip('/')}"
         resolved_token = auth_token or get_auth_token()
-        merged_params = {**(params or {}), **self._context_params()}
+        merged_params = dict(params or {})
+        if include_context_params:
+            merged_params.update(self._context_params())
         async with httpx.AsyncClient(timeout=self._timeout_seconds) as client:
             response = await client.request(
                 method=method.upper(),
@@ -91,9 +94,12 @@ class XFloorClient:
         files: list[dict[str, str]] | None = None,
     ) -> dict[str, Any]:
         ctx = self._context_params()
-        form_data: dict[str, str] = {"input_info": input_info, **ctx}
+        request_files: list[tuple[str, tuple[str | None, str | bytes | IO[Any]] | tuple[str, bytes, str]]] = [
+            ("input_info", (None, input_info)),
+            ("user_id", (None, ctx["user_id"])),
+            ("app_id", (None, ctx["app_id"])),
+        ]
 
-        request_files: list[tuple[str, tuple[str, bytes, str]]] = []
         for item in files or []:
             filename = item.get("filename")
             content_base64 = item.get("content_base64")
@@ -107,8 +113,9 @@ class XFloorClient:
             "POST",
             "/api/memory/events",
             auth_token,
-            data=form_data,
-            files=request_files or None,
+            params={},
+            files=request_files,
+            include_context_params=False,
         )
 
     async def recent_events(self, auth_token: str | None = None, *, params: dict[str, Any]) -> dict[str, Any]:

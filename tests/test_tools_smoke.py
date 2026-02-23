@@ -163,9 +163,12 @@ class TestToolsSmoke:
         )
 
         assert captured[0]["url"].endswith("/api/memory/events")
-        assert captured[0]["data"]["input_info"] == valid_info
-        assert captured[0]["params"]["user_id"] == "user-ctx"
-        assert captured[0]["files"][0][0] == "files"
+        multipart_fields = {name: payload for name, payload in captured[0]["files"]}
+        assert multipart_fields["input_info"][1] == valid_info
+        assert multipart_fields["user_id"][1] == "user-ctx"
+        assert multipart_fields["app_id"][1] == "app-ctx"
+        assert "user_id" not in captured[0]["params"]
+        assert "app_id" not in captured[0]["params"]
 
         with pytest.raises(ValueError, match="missing required field"):
             client.validate_input_info('{"floor_id":"f1"}')
@@ -173,30 +176,42 @@ class TestToolsSmoke:
 
     @pytest.mark.asyncio
     async def test_create_event_includes_user_and_app_in_form_data(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        captured: list[dict[str, Any]] = []
+
+        class _FakeAsyncClient:
+            def __init__(self, timeout: float) -> None:
+                self.timeout = timeout
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, exc_type, exc, tb):
+                return None
+
+            async def request(self, **kwargs):
+                captured.append(kwargs)
+                return self_outer._MockResponse({"ok": True})
+
+        self_outer = self
+        monkeypatch.setattr("xfloor_mcp.xfloor_client.httpx.AsyncClient", _FakeAsyncClient)
+
         set_auth_token("token")
         set_user_id("user-ctx")
         set_app_id("app-ctx")
-
-        captured: dict[str, Any] = {}
-
-        async def _fake_request_json(self, method: str, path: str, auth_token: str | None = None, **kwargs: Any) -> dict[str, Any]:
-            captured["method"] = method
-            captured["path"] = path
-            captured["auth_token"] = auth_token
-            captured.update(kwargs)
-            return {"ok": True}
-
-        monkeypatch.setattr(XFloorClient, "_request_json", _fake_request_json)
 
         client = XFloorClient(base_url="https://appfloor.in")
         result = await client.create_event(None, input_info='{"floor_id":"f1","block_id":"b1","user_id":"u1","title":"t","description":"d"}')
 
         assert result["ok"] is True
-        assert captured["method"] == "POST"
-        assert captured["path"] == "/api/memory/events"
-        assert captured["data"]["input_info"]
-        assert captured["data"]["user_id"] == "user-ctx"
-        assert captured["data"]["app_id"] == "app-ctx"
+        assert captured[0]["method"] == "POST"
+        assert captured[0]["url"].endswith("/api/memory/events")
+        assert captured[0]["files"] is not None
+        form_parts = {(name, payload[0]): payload for name, payload in captured[0]["files"] if name in {"input_info", "user_id", "app_id"}}
+        assert form_parts[("input_info", None)][1]
+        assert form_parts[("user_id", None)][1] == "user-ctx"
+        assert form_parts[("app_id", None)][1] == "app-ctx"
+        assert "user_id" not in captured[0]["params"]
+        assert "app_id" not in captured[0]["params"]
 
     @pytest.mark.asyncio
     async def test_tool_uses_auth_header_and_wait_for_ingestion(self) -> None:
