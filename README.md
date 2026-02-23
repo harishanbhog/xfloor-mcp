@@ -1,79 +1,154 @@
 # xfloor-mcp
 
-Production-ready Python 3.12 MCP server that exposes xFloor APIs as MCP tools over:
+Production-ready Python 3.12 MCP server for xFloor APIs with:
 
-1. **Streamable HTTP** mounted at **`/mcp`** in FastAPI
-2. **stdio mode** for local MCP clients (`python -m xfloor_mcp.stdio`)
+- Streamable HTTP MCP endpoint at `/mcp`
+- Local stdio mode: `python -m xfloor_mcp.stdio`
 
-## Features
+## Quick architecture (EC2)
 
-- FastAPI host app with health endpoint (`/healthz`)
-- MCP server built with `FastMCP`
-- Streamable HTTP configured with:
-  - `stateless_http=True`
-  - `json_response=True`
-- CORS support with `Mcp-Session-Id` exposed header
-- Environment-driven configuration via `pydantic-settings`
-- xFloor API wrappers for memory query, event creation, recent events, floor info
-- Docker + nginx deployment scaffolding
+- `docker compose` runs app on **localhost only**: `127.0.0.1:8000`
+- `nginx` handles public HTTPS and reverse-proxies:
+  - `/mcp` -> `http://127.0.0.1:8000/mcp`
+  - `/healthz` -> `http://127.0.0.1:8000/healthz`
 
-## Requirements
+---
 
-- Python 3.12+
-- Node.js (optional, for MCP Inspector)
-
-## Installation
+## Local development
 
 ```bash
 python3.12 -m venv .venv
 source .venv/bin/activate
-pip install --upgrade pip
 pip install -e .[dev]
+./scripts/dev.sh
 ```
 
-## Configuration
-
-Set environment variables (or create a `.env` file):
+Health check:
 
 ```bash
-export APP_NAME=xfloor-mcp
-export APP_HOST=0.0.0.0
-export APP_PORT=8000
-export APP_LOG_LEVEL=info
-
-export CORS_ALLOW_ORIGINS='*'
-export CORS_ALLOW_CREDENTIALS=true
-export CORS_ALLOW_METHODS='*'
-export CORS_ALLOW_HEADERS='*'
-
-export XFLOOR_BASE_URL='https://appfloor.in'
-export XFLOOR_TIMEOUT_SECONDS=15
+curl -s http://127.0.0.1:8000/healthz
 ```
 
-> The MCP request must include `Authorization: Bearer <token>`. The token is forwarded to xFloor APIs.
+---
 
-## Run locally (HTTP)
+## Example `.env` file
+
+Create `.env` in repo root:
+
+```env
+APP_NAME=xfloor-mcp
+APP_HOST=0.0.0.0
+APP_PORT=8000
+APP_LOG_LEVEL=info
+
+CORS_ALLOW_ORIGINS=*
+CORS_ALLOW_CREDENTIALS=true
+CORS_ALLOW_METHODS=*
+CORS_ALLOW_HEADERS=*
+
+XFLOOR_BASE_URL=https://appfloor.in
+XFLOOR_TIMEOUT_SECONDS=30
+```
+
+Auth behavior:
+- MCP requests must include `Authorization: Bearer <token>`.
+- That bearer token is forwarded to xFloor APIs.
+
+---
+
+## EC2 deployment (Ubuntu 22.04/24.04)
+
+### 1) Provision EC2 + Security Group
+
+Use a security group with:
+
+- **22/tcp** from your admin IP
+- **80/tcp** from `0.0.0.0/0`
+- **443/tcp** from `0.0.0.0/0`
+
+> Do **not** expose 8000 publicly; app binds to localhost via compose.
+
+### 2) Install Docker + Compose plugin + Nginx + Certbot
 
 ```bash
-python -m xfloor_mcp.main
+sudo apt-get update
+sudo apt-get install -y ca-certificates curl gnupg lsb-release
+
+sudo install -m 0755 -d /etc/apt/keyrings
+curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+sudo chmod a+r /etc/apt/keyrings/docker.gpg
+
+echo \
+  "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu \
+  $(. /etc/os-release && echo $VERSION_CODENAME) stable" | \
+  sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+
+sudo apt-get update
+sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin nginx certbot python3-certbot-nginx
+
+sudo usermod -aG docker $USER
+newgrp docker
 ```
 
-Then:
-
-- Health: `http://localhost:8000/healthz`
-- MCP endpoint: `http://localhost:8000/mcp`
-
-## Run locally (stdio)
+### 3) Clone repo and configure env
 
 ```bash
-python -m xfloor_mcp.stdio
+git clone <your-repo-url> xfloor-mcp
+cd xfloor-mcp
+cp .env.example .env 2>/dev/null || true
+# or create .env manually using the example in this README
 ```
 
-Use this mode for local MCP clients/tests that launch a subprocess transport.
+### 4) Start app container
 
-## Test with MCP Inspector
+```bash
+./scripts/prod.sh
+```
 
-### Against HTTP transport
+Verify app is listening locally only:
+
+```bash
+ss -ltnp | rg ':8000|:80|:443'
+curl -s http://127.0.0.1:8000/healthz
+```
+
+### 5) Configure nginx
+
+Copy nginx config and set your domain:
+
+```bash
+sudo cp nginx/xfloor-mcp.conf /etc/nginx/sites-available/xfloor-mcp.conf
+sudo sed -i 's/your-domain.example.com/your-real-domain.com/g' /etc/nginx/sites-available/xfloor-mcp.conf
+sudo ln -sf /etc/nginx/sites-available/xfloor-mcp.conf /etc/nginx/sites-enabled/xfloor-mcp.conf
+sudo nginx -t
+sudo systemctl reload nginx
+```
+
+### 6) Issue TLS certificate via Certbot
+
+```bash
+sudo certbot --nginx -d your-real-domain.com
+sudo systemctl status certbot.timer --no-pager
+```
+
+Re-test nginx:
+
+```bash
+sudo nginx -t
+sudo systemctl reload nginx
+```
+
+### 7) Validate externally
+
+```bash
+curl -s https://your-real-domain.com/healthz
+```
+
+---
+
+## Verify MCP with Inspector (post-deploy)
+
+Start Inspector locally on your machine:
 
 ```bash
 npx @modelcontextprotocol/inspector
@@ -82,10 +157,26 @@ npx @modelcontextprotocol/inspector
 In Inspector:
 
 - Transport: **Streamable HTTP**
-- URL: `http://localhost:8000/mcp`
-- Add header: `Authorization: Bearer <your-token>`
+- URL: `https://your-real-domain.com/mcp`
+- Header: `Authorization: Bearer <your-token>`
 
-### Against stdio transport
+Then run tools:
+
+- `xfloor_query_memory`
+- `xfloor_create_event`
+- `xfloor_recent_events`
+- `xfloor_get_floor_info`
+- `xfloor_wait_for_ingestion`
+
+---
+
+## Stdio mode (local clients)
+
+```bash
+python -m xfloor_mcp.stdio
+```
+
+Or with Inspector stdio mode:
 
 ```bash
 npx @modelcontextprotocol/inspector \
@@ -93,101 +184,3 @@ npx @modelcontextprotocol/inspector \
   --command python \
   --args "-m,xfloor_mcp.stdio"
 ```
-
-## Available MCP tools
-
-1. `xfloor_query_memory`
-   - Calls `POST /agent/memory/query`
-   - Input fields: `user_id`, `query`, `floor_ids`, optional `filters`, `k`, `include_metadata` (`"0"|"1"`), `summary_needed` (`"0"|"1"`), `app_id`
-
-2. `xfloor_create_event`
-   - Calls `POST /api/memory/events` (multipart/form-data)
-   - Input fields: `input_info` (JSON string with required keys: `floor_id`, `block_id`, `user_id`, `title`, `description`; optional `block_type`), optional `app_id`, optional `files[]`
-   - `files[]` item format: `{filename, content_base64, mime_type}`
-
-3. `xfloor_recent_events`
-   - Calls `GET /api/memory/recent/events`
-   - Input fields: configurable query params (`floor_id`, `user_id`, `app_id`, `page`, `limit`, `start_time`, `end_time`, `event_type`) plus `extra_params`
-
-4. `xfloor_get_floor_info`
-   - Calls `GET /api/memory/floor/info/{floor_id}`
-
-5. `xfloor_wait_for_ingestion`
-   - Polls recent events until `match_text` is found in event `title`/`description`
-   - Input fields: `floor_id`, `match_text`, optional `timeout_s` (default 30), `poll_interval_s` (default 2)
-
-## Example tool calls (JSON)
-
-`xfloor_query_memory`:
-
-```json
-{
-  "user_id": "user-123",
-  "query": "what was decided in standup?",
-  "floor_ids": ["floor-1"],
-  "include_metadata": "1",
-  "summary_needed": "1",
-  "k": 5
-}
-```
-
-`xfloor_create_event`:
-
-```json
-{
-  "input_info": "{\"floor_id\":\"floor-1\",\"block_id\":\"block-1\",\"user_id\":\"user-123\",\"title\":\"Meeting Notes\",\"description\":\"Action items collected\"}",
-  "files": [
-    {
-      "filename": "notes.txt",
-      "content_base64": "aGVsbG8gd29ybGQ=",
-      "mime_type": "text/plain"
-    }
-  ]
-}
-```
-
-`xfloor_recent_events`:
-
-```json
-{
-  "floor_id": "floor-1",
-  "limit": 20,
-  "page": 1
-}
-```
-
-`xfloor_get_floor_info`:
-
-```json
-{
-  "floor_id": "floor-1"
-}
-```
-
-`xfloor_wait_for_ingestion`:
-
-```json
-{
-  "floor_id": "floor-1",
-  "match_text": "Meeting Notes",
-  "timeout_s": 30,
-  "poll_interval_s": 2
-}
-```
-
-## Docker deployment
-
-Build and run app + nginx reverse proxy:
-
-```bash
-docker compose up --build
-```
-
-Services:
-
-- `xfloor-mcp`: FastAPI app on internal `8000`
-- `nginx`: public listener on `8080`
-
-MCP endpoint through nginx:
-
-- `http://localhost:8080/mcp`

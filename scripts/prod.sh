@@ -1,12 +1,17 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-: "${APP_HOST:=0.0.0.0}"
-: "${APP_PORT:=8000}"
-: "${APP_LOG_LEVEL:=info}"
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$ROOT_DIR"
 
-exec uvicorn xfloor_mcp.main:create_app \
-  --factory \
-  --host "$APP_HOST" \
-  --port "$APP_PORT" \
-  --log-level "$APP_LOG_LEVEL"
+if [[ -f .env ]]; then
+  set -a
+  # shellcheck disable=SC1091
+  source .env
+  set +a
+fi
+
+docker compose pull || true
+docker compose up -d --build
+
+echo "xfloor-mcp deployed. Check: docker compose ps"

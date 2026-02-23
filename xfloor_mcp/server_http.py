@@ -9,7 +9,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from mcp.server.fastmcp import FastMCP
 
-from .settings import Settings
+from .settings import Settings, get_settings
 from .tools import register_tools
 from .xfloor_client import XFloorClient
 
@@ -83,3 +83,7 @@ def create_http_app(settings: Settings) -> FastAPI:
 
     app.mount("/mcp", _build_mcp_app(mcp))
     return app
+
+
+# ASGI app for uvicorn module path loading
+app = create_http_app(get_settings())
