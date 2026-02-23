@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from types import SimpleNamespace
-from typing import Any, Callable
+from typing import Any, Callable, get_type_hints
 
 import pytest
 
@@ -52,10 +52,10 @@ async def test_tools_registered_with_expected_inputs() -> None:
         "xfloor_wait_for_ingestion",
     }
 
-    assert mcp.registry["xfloor_query_memory"].__annotations__["input"] is XFloorQueryMemoryInput
-    assert mcp.registry["xfloor_create_event"].__annotations__["input"] is XFloorCreateEventInput
-    assert mcp.registry["xfloor_recent_events"].__annotations__["input"] is XFloorRecentEventsInput
-    assert mcp.registry["xfloor_get_floor_info"].__annotations__["input"] is XFloorGetFloorInfoInput
+    assert get_type_hints(mcp.registry["xfloor_query_memory"])["input"] is XFloorQueryMemoryInput
+    assert get_type_hints(mcp.registry["xfloor_create_event"])["input"] is XFloorCreateEventInput
+    assert get_type_hints(mcp.registry["xfloor_recent_events"])["input"] is XFloorRecentEventsInput
+    assert get_type_hints(mcp.registry["xfloor_get_floor_info"])["input"] is XFloorGetFloorInfoInput
 
 
 @pytest.mark.asyncio
