@@ -170,6 +170,34 @@ class TestToolsSmoke:
         with pytest.raises(ValueError, match="missing required field"):
             client.validate_input_info('{"floor_id":"f1"}')
 
+
+    @pytest.mark.asyncio
+    async def test_create_event_includes_user_and_app_in_form_data(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        set_auth_token("token")
+        set_user_id("user-ctx")
+        set_app_id("app-ctx")
+
+        captured: dict[str, Any] = {}
+
+        async def _fake_request_json(self, method: str, path: str, auth_token: str | None = None, **kwargs: Any) -> dict[str, Any]:
+            captured["method"] = method
+            captured["path"] = path
+            captured["auth_token"] = auth_token
+            captured.update(kwargs)
+            return {"ok": True}
+
+        monkeypatch.setattr(XFloorClient, "_request_json", _fake_request_json)
+
+        client = XFloorClient(base_url="https://appfloor.in")
+        result = await client.create_event(None, input_info='{"floor_id":"f1","block_id":"b1","user_id":"u1","title":"t","description":"d"}')
+
+        assert result["ok"] is True
+        assert captured["method"] == "POST"
+        assert captured["path"] == "/api/memory/events"
+        assert captured["data"]["input_info"]
+        assert captured["data"]["user_id"] == "user-ctx"
+        assert captured["data"]["app_id"] == "app-ctx"
+
     @pytest.mark.asyncio
     async def test_tool_uses_auth_header_and_wait_for_ingestion(self) -> None:
         mcp = self._FakeMCP()

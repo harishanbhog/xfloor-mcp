@@ -90,7 +90,8 @@ class XFloorClient:
         input_info: str,
         files: list[dict[str, str]] | None = None,
     ) -> dict[str, Any]:
-        form_data: dict[str, str] = {"input_info": input_info}
+        ctx = self._context_params()
+        form_data: dict[str, str] = {"input_info": input_info, **ctx}
 
         request_files: list[tuple[str, tuple[str, bytes, str]]] = []
         for item in files or []:
