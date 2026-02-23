@@ -61,7 +61,6 @@ def create_http_app(settings: Settings) -> FastAPI:
     mcp = FastMCP(settings.app_name, stateless_http=True, json_response=True)
     client = XFloorClient(
         base_url=settings.xfloor_base_url,
-        api_key=settings.xfloor_api_key,
         timeout_seconds=settings.xfloor_timeout_seconds,
     )
     register_tools(mcp, client)

@@ -26,10 +26,8 @@ class Settings(BaseSettings):
     cors_allow_methods: list[str] = Field(default=["*"], alias="CORS_ALLOW_METHODS")
     cors_allow_headers: list[str] = Field(default=["*"], alias="CORS_ALLOW_HEADERS")
 
-    xfloor_base_url: str = Field(alias="XFLOOR_BASE_URL")
-    xfloor_api_key: str | None = Field(default=None, alias="XFLOOR_API_KEY")
+    xfloor_base_url: str = Field(default="https://appfloor.in", alias="XFLOOR_BASE_URL")
     xfloor_timeout_seconds: float = Field(default=15.0, alias="XFLOOR_TIMEOUT_SECONDS")
-
 
     @field_validator("cors_allow_origins", "cors_allow_methods", "cors_allow_headers", mode="before")
     @classmethod

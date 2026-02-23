@@ -15,7 +15,6 @@ def create_stdio_server(settings: Settings) -> FastMCP:
     mcp = FastMCP(settings.app_name)
     client = XFloorClient(
         base_url=settings.xfloor_base_url,
-        api_key=settings.xfloor_api_key,
         timeout_seconds=settings.xfloor_timeout_seconds,
     )
     register_tools(mcp, client)
