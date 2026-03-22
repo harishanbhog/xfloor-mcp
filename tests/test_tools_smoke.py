@@ -248,6 +248,70 @@ class TestToolsSmoke:
         assert post_result["posted"] is True
 
     @pytest.mark.asyncio
+    async def test_post_event_to_current_floor_uses_description_as_title_and_omits_blank_block_id(self) -> None:
+        mcp = self._FakeMCP()
+        set_auth_token("ctx-token")
+        set_user_id("ctx-user")
+        set_app_id("ctx-app")
+        set_active_floor_id(None)
+
+        class _FakeClient:
+            async def create_event(self, token: str, **kwargs: Any) -> dict[str, Any]:
+                payload = json.loads(kwargs["input_info"])
+                assert payload["floor_id"] == "phari"
+                assert payload["user_id"] == "ctx-user"
+                assert payload["title"] == "Bring questions"
+                assert "block_id" not in payload
+                return {"ok": True}
+
+        register_tools(mcp=mcp, client=_FakeClient())
+        await mcp.registry["xfloor_set_active_floor"](XFloorSetActiveFloorInput(floor_ref="@phari"), None)
+
+        result = await mcp.registry["xfloor_post_event_to_current_floor"](
+            XFloorPostEventToCurrentFloorInput(title="   ", description="Bring questions", block_id=" "),
+            None,
+        )
+
+        assert result["accepted"] is True
+        assert result["status"] == "accepted"
+        assert result["message"] == "Event submission accepted."
+        assert result["event"]["title"] == "Bring questions"
+        assert result["event"]["block_id"] is None
+
+    @pytest.mark.asyncio
+    async def test_post_event_to_current_floor_marks_queue_submission_as_success(self) -> None:
+        mcp = self._FakeMCP()
+        set_auth_token("ctx-token")
+        set_user_id("ctx-user")
+        set_app_id("ctx-app")
+        set_active_floor_id(None)
+
+        class _FakeClient:
+            async def create_event(self, token: str, **kwargs: Any) -> dict[str, Any]:
+                payload = json.loads(kwargs["input_info"])
+                assert payload["block_id"] == "chatgpt"
+                return {"message": "Submitted to queue for processing"}
+
+        register_tools(mcp=mcp, client=_FakeClient())
+        await mcp.registry["xfloor_set_active_floor"](XFloorSetActiveFloorInput(floor_ref="@phari"), None)
+
+        result = await mcp.registry["xfloor_post_event_to_current_floor"](
+            XFloorPostEventToCurrentFloorInput(
+                title="Town Hall",
+                description="Bring questions",
+                block_id="chatgpt",
+            ),
+            None,
+        )
+
+        assert result["accepted"] is True
+        assert result["posted"] is True
+        assert result["verification_required"] is False
+        assert result["status"] == "queued"
+        assert result["message"] == "Event submission accepted and queued."
+        assert result["event"]["block_id"] == "chatgpt"
+
+    @pytest.mark.asyncio
     async def test_stored_floor_takes_precedence_over_stale_header(self) -> None:
         mcp = self._FakeMCP()
         set_auth_token("ctx-token")
@@ -277,7 +341,6 @@ class TestToolsSmoke:
             None,
         )
         assert result["floor_source"] == "session_state"
-
 
     @pytest.mark.asyncio
     async def test_header_override_is_used_when_no_stored_floor_exists(self) -> None:

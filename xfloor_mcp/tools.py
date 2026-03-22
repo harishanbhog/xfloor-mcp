@@ -83,9 +83,9 @@ class XFloorGetCurrentFloorEventsInput(BaseModel):
 
 
 class XFloorPostEventToCurrentFloorInput(BaseModel):
-    title: str = Field(description="Short event title")
+    title: str | None = Field(default=None, description="Optional short event title. If omitted, description will be used as title.")
     description: str = Field(description="Event details or body text")
-    block_id: str = Field(default="chatgpt", description="Optional logical block identifier for the event")
+    block_id: str | None = Field(default=None, description="Optional logical block identifier for the event")
     block_type: str | None = Field(default="note", description="Optional block type")
     location: str | None = Field(default=None, description="Optional event location")
     start_date: str | None = Field(default=None, description="Optional start date")
@@ -304,20 +304,24 @@ def register_tools(mcp: Any, client: XFloorClient) -> None:
 
     @mcp.tool(
         name="xfloor_post_event_to_current_floor",
-        description="Use this when the user explicitly wants to create/post an event in the currently active xFloor. This tool uses the active floor selected by xfloor_set_active_floor, with the request header acting only as an optional override/debug path.",
+        description="Use this when the user explicitly wants to create/post an event in the currently active xFloor. This tool uses the active floor selected by xfloor_set_active_floor, with the request header acting only as an optional override/debug path. Queue acceptance is considered success for this tool.",
     )
     async def xfloor_post_event_to_current_floor(input: XFloorPostEventToCurrentFloorInput, ctx: Any = None) -> dict[str, Any]:
         token = _extract_auth_token(ctx, None)
         floor = _resolve_active_floor_id()
         user_id = _require_context_user_id()
 
+        normalized_title = input.title.strip() if input.title and input.title.strip() else input.description
+        normalized_block_id = input.block_id.strip() if input.block_id and input.block_id.strip() else None
+
         payload: dict[str, Any] = {
             "floor_id": floor["floor_id"],
-            "block_id": input.block_id,
             "user_id": user_id,
-            "title": input.title,
+            "title": normalized_title,
             "description": input.description,
         }
+        if normalized_block_id:
+            payload["block_id"] = normalized_block_id
         if input.block_type:
             payload["block_type"] = input.block_type
         if input.location:
@@ -333,19 +337,30 @@ def register_tools(mcp: Any, client: XFloorClient) -> None:
 
         input_info = json.dumps(payload)
         result = await client.create_event(token, input_info=input_info, files=None)
+        compact_result = _compact(result)
+        result_text = json.dumps(compact_result).lower()
+        queued = "submitted to queue" in result_text or "submitted to the queue" in result_text or '"queued"' in result_text
+        status = "queued" if queued else "accepted"
+        message = "Event submission accepted and queued." if queued else "Event submission accepted."
+
         return {
             "floor_id": floor["floor_id"],
             "floor_ref": floor["floor_ref"],
             "floor_source": floor["source"],
+            "accepted": True,
+            "status": status,
+            "verification_required": False,
             "posted": True,
+            "message": message,
             "event": {
-                "title": input.title,
+                "title": normalized_title,
                 "description": input.description,
+                "block_id": normalized_block_id,
                 "location": input.location,
                 "start_date": input.start_date,
                 "start_time": input.start_time,
                 "end_date": input.end_date,
                 "end_time": input.end_time,
             },
-            "result": _compact(result),
+            "result": compact_result,
         }
