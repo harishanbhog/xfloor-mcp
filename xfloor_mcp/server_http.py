@@ -98,7 +98,7 @@ def create_http_app(settings: Settings) -> FastAPI:
         if not is_mcp_path:
             return await call_next(request)
 
-        token = _extract_bearer(request.headers.get("Authorization"))
+        token = _extract_bearer(request.headers.get("Authorization")) or settings.xfloor_default_auth_token
         user_id = request.headers.get("X-XFloor-User-Id") or settings.xfloor_default_user_id
         app_id = request.headers.get("X-XFloor-App-Id") or settings.xfloor_default_app_id
         active_floor_id = request.headers.get("X-XFloor-Active-Floor-Id")
@@ -122,7 +122,7 @@ def create_http_app(settings: Settings) -> FastAPI:
                 content={
                     "error": "Missing required xFloor headers",
                     "missing": missing,
-                    "hint": "Set required headers or configure XFLOOR_DEFAULT_USER_ID / XFLOOR_DEFAULT_APP_ID for local development.",
+                    "hint": "Set required headers or configure XFLOOR_DEFAULT_AUTH_TOKEN / XFLOOR_DEFAULT_USER_ID / XFLOOR_DEFAULT_APP_ID for local development.",
                 },
             )
 

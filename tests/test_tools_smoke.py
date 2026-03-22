@@ -344,3 +344,24 @@ def test_http_middleware_requires_headers_with_clear_error() -> None:
     assert payload["error"] == "Missing required xFloor headers"
     assert "X-XFloor-User-Id" in payload["missing"]
     assert "X-XFloor-App-Id" in payload["missing"]
+
+
+@pytest.mark.skipif(not (HAS_DEPS and HAS_FASTAPI), reason="requires fastapi + runtime deps")
+def test_http_middleware_uses_env_defaults_when_headers_are_missing() -> None:
+    from fastapi.testclient import TestClient
+
+    from xfloor_mcp.server_http import create_http_app
+    from xfloor_mcp.settings import Settings
+
+    app = create_http_app(
+        Settings(
+            XFLOOR_BASE_URL="https://appfloor.in",
+            XFLOOR_DEFAULT_AUTH_TOKEN="default-token",
+            XFLOOR_DEFAULT_USER_ID="fallback-user",
+            XFLOOR_DEFAULT_APP_ID="fallback-app",
+        )
+    )
+
+    client = TestClient(app)
+    response = client.post("/mcp", json={"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}})
+    assert response.status_code != 400

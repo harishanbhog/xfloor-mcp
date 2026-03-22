@@ -48,14 +48,15 @@ CORS_ALLOW_HEADERS=*
 
 XFLOOR_BASE_URL=https://appfloor.in
 XFLOOR_TIMEOUT_SECONDS=30
+XFLOOR_DEFAULT_AUTH_TOKEN=local-dev-bearer-token
 XFLOOR_DEFAULT_USER_ID=local-dev-user
 XFLOOR_DEFAULT_APP_ID=local-dev-app
 ```
 
 Auth + identity behavior:
-- MCP requests must include `Authorization: Bearer <token>`.
-- In HTTP mode, `X-XFloor-User-Id` and `X-XFloor-App-Id` are required.
-- If headers are absent, local-dev fallbacks can be set via `XFLOOR_DEFAULT_USER_ID` and `XFLOOR_DEFAULT_APP_ID`.
+- MCP requests normally include `Authorization: Bearer <token>`.
+- In HTTP mode, `X-XFloor-User-Id` and `X-XFloor-App-Id` are normally required.
+- For local/ngrok development, you can set `XFLOOR_DEFAULT_AUTH_TOKEN`, `XFLOOR_DEFAULT_USER_ID`, and `XFLOOR_DEFAULT_APP_ID` in `.env` to use defaults when headers are absent.
 - Token is forwarded as Bearer auth and `user_id` / `app_id` are attached to every xFloor request as query params.
 
 ---
