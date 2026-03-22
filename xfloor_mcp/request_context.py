@@ -8,6 +8,7 @@ _auth_token_var: ContextVar[str | None] = ContextVar("xfloor_auth_token", defaul
 _user_id_var: ContextVar[str | None] = ContextVar("xfloor_user_id", default=None)
 _app_id_var: ContextVar[str | None] = ContextVar("xfloor_app_id", default=None)
 _active_floor_id_var: ContextVar[str | None] = ContextVar("xfloor_active_floor_id", default=None)
+_session_key_var: ContextVar[str | None] = ContextVar("xfloor_session_key", default=None)
 
 
 def set_auth_token(token: str | None) -> None:
@@ -40,3 +41,11 @@ def set_active_floor_id(floor_id: str | None) -> None:
 
 def get_active_floor_id() -> str | None:
     return _active_floor_id_var.get()
+
+
+def set_session_key(session_key: str | None) -> None:
+    _session_key_var.set(session_key)
+
+
+def get_session_key() -> str | None:
+    return _session_key_var.get()

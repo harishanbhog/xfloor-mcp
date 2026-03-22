@@ -10,17 +10,20 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from mcp.server.fastmcp import FastMCP
 
-from .request_context import set_active_floor_id, set_app_id, set_auth_token, set_user_id
+from .request_context import (
+    set_active_floor_id,
+    set_app_id,
+    set_auth_token,
+    set_session_key,
+    set_user_id,
+)
 from .settings import Settings, get_settings
 from .tools import register_tools
 from .xfloor_client import XFloorClient
 
 
 def _build_mcp_app(mcp: FastMCP) -> Any:
-    """Create an ASGI app for Streamable HTTP transport.
-
-    We normalize to path='/' so mounting in FastAPI at '/mcp' does not produce '/mcp/mcp'.
-    """
+    """Create an ASGI app for Streamable HTTP transport."""
 
     if hasattr(mcp, "streamable_http_app"):
         try:
@@ -99,6 +102,11 @@ def create_http_app(settings: Settings) -> FastAPI:
         user_id = request.headers.get("X-XFloor-User-Id") or settings.xfloor_default_user_id
         app_id = request.headers.get("X-XFloor-App-Id") or settings.xfloor_default_app_id
         active_floor_id = request.headers.get("X-XFloor-Active-Floor-Id")
+        session_key = (
+            request.headers.get("Mcp-Session-Id")
+            or request.headers.get("X-Mcp-Session-Id")
+            or (f"{user_id}:{app_id}" if user_id and app_id else None)
+        )
 
         missing: list[str] = []
         if not token:
@@ -122,6 +130,7 @@ def create_http_app(settings: Settings) -> FastAPI:
         set_user_id(user_id)
         set_app_id(app_id)
         set_active_floor_id(active_floor_id)
+        set_session_key(session_key)
         try:
             return await call_next(request)
         finally:
@@ -129,6 +138,7 @@ def create_http_app(settings: Settings) -> FastAPI:
             set_user_id(None)
             set_app_id(None)
             set_active_floor_id(None)
+            set_session_key(None)
 
     @app.get("/healthz")
     async def healthz() -> dict[str, bool]:

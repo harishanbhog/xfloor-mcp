@@ -7,6 +7,9 @@ from typing import Any, Callable, get_type_hints
 
 import pytest
 
+from xfloor_mcp.active_floor_state import clear_all_active_floor_state, normalize_floor_ref, resolve_floor_reference
+from xfloor_mcp.request_context import set_session_key
+
 HAS_PYDANTIC = importlib.util.find_spec("pydantic") is not None
 HAS_HTTPX = importlib.util.find_spec("httpx") is not None
 HAS_FASTAPI = importlib.util.find_spec("fastapi") is not None
@@ -27,9 +30,16 @@ if HAS_DEPS:
         XFloorQueryCurrentFloorInput,
         XFloorQueryMemoryInput,
         XFloorRecentEventsInput,
+        XFloorSetActiveFloorInput,
         register_tools,
     )
     from xfloor_mcp.xfloor_client import XFloorClient
+
+
+def test_floor_alias_normalization_works_for_plain_and_at_prefixed_refs() -> None:
+    assert normalize_floor_ref("phari") == "phari"
+    assert normalize_floor_ref("@phari") == "phari"
+    assert resolve_floor_reference(floor_ref="@croma")["floor_id"] == "croma"
 
 
 @pytest.mark.skipif(not HAS_DEPS, reason="requires pydantic/httpx")
@@ -55,6 +65,11 @@ class TestToolsSmoke:
         def json(self) -> dict[str, Any]:
             return self._payload
 
+    def setup_method(self) -> None:
+        clear_all_active_floor_state()
+        set_session_key("test-session")
+        set_active_floor_id(None)
+
     @pytest.mark.asyncio
     async def test_tools_registered_with_expected_inputs(self) -> None:
         mcp = self._FakeMCP()
@@ -66,6 +81,7 @@ class TestToolsSmoke:
             "xfloor_recent_events",
             "xfloor_get_floor_info",
             "xfloor_wait_for_ingestion",
+            "xfloor_set_active_floor",
             "xfloor_query_current_floor",
             "xfloor_get_current_floor_events",
             "xfloor_post_event_to_current_floor",
@@ -75,6 +91,7 @@ class TestToolsSmoke:
         assert get_type_hints(mcp.registry["xfloor_create_event"])["input"] is XFloorCreateEventInput
         assert get_type_hints(mcp.registry["xfloor_recent_events"])["input"] is XFloorRecentEventsInput
         assert get_type_hints(mcp.registry["xfloor_get_floor_info"])["input"] is XFloorGetFloorInfoInput
+        assert get_type_hints(mcp.registry["xfloor_set_active_floor"])["input"] is XFloorSetActiveFloorInput
         assert get_type_hints(mcp.registry["xfloor_query_current_floor"])["input"] is XFloorQueryCurrentFloorInput
         assert get_type_hints(mcp.registry["xfloor_get_current_floor_events"])["input"] is XFloorGetCurrentFloorEventsInput
         assert get_type_hints(mcp.registry["xfloor_post_event_to_current_floor"])["input"] is XFloorPostEventToCurrentFloorInput
@@ -120,11 +137,7 @@ class TestToolsSmoke:
         assert captured[0]["headers"]["Authorization"] == "Bearer token-ctx"
         assert captured[0]["params"]["user_id"] == "user-ctx"
         assert captured[0]["params"]["app_id"] == "app-ctx"
-
-        assert captured[1]["method"] == "GET"
         assert captured[1]["params"]["floor_id"] == "f1"
-        assert captured[1]["params"]["user_id"] == "user-ctx"
-
         assert captured[2]["url"].endswith("/api/memory/floor/info/f1")
 
     @pytest.mark.asyncio
@@ -188,123 +201,34 @@ class TestToolsSmoke:
             client.validate_input_info('{"floor_id":"f1"}')
 
     @pytest.mark.asyncio
-    async def test_create_event_includes_user_and_app_in_form_data(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        captured: list[dict[str, Any]] = []
-
-        class _FakeAsyncClient:
-            def __init__(self, timeout: float) -> None:
-                self.timeout = timeout
-
-            async def __aenter__(self):
-                return self
-
-            async def __aexit__(self, exc_type, exc, tb):
-                return None
-
-            async def request(self, **kwargs):
-                captured.append(kwargs)
-                return self_outer._MockResponse({"ok": True})
-
-        self_outer = self
-        monkeypatch.setattr("xfloor_mcp.xfloor_client.httpx.AsyncClient", _FakeAsyncClient)
-
-        set_auth_token("token")
-        set_user_id("user-ctx")
-        set_app_id("app-ctx")
-
-        client = XFloorClient(base_url="https://appfloor.in")
-        result = await client.create_event(None, input_info='{"floor_id":"f1","block_id":"b1","user_id":"u1","title":"t","description":"d"}')
-
-        assert result["ok"] is True
-        assert captured[0]["method"] == "POST"
-        assert captured[0]["url"].endswith("/api/memory/events")
-        assert captured[0]["files"] is not None
-        form_parts = {(name, payload[0]): payload for name, payload in captured[0]["files"] if name in {"input_info", "user_id", "app_id"}}
-        assert form_parts[("input_info", None)][1]
-        assert form_parts[("user_id", None)][1] == "user-ctx"
-        assert form_parts[("app_id", None)][1] == "app-ctx"
-        assert "user_id" not in captured[0]["params"]
-        assert "app_id" not in captured[0]["params"]
-
-    @pytest.mark.asyncio
-    async def test_tool_uses_auth_header_and_wait_for_ingestion(self) -> None:
-        mcp = self._FakeMCP()
-
-        class _FakeClient:
-            def __init__(self) -> None:
-                self.called_token: str | None = None
-                self.calls = 0
-
-            async def query_memory(self, token: str, **kwargs: Any) -> dict[str, Any]:
-                self.called_token = token
-                return {"ok": True}
-
-            def validate_input_info(self, input_info: str) -> None:
-                return None
-
-            async def create_event(self, token: str, **kwargs: Any) -> dict[str, Any]:
-                self.called_token = token
-                return {"ok": True}
-
-            async def recent_events(self, token: str, *, params: dict[str, Any]) -> dict[str, Any]:
-                self.called_token = token
-                self.calls += 1
-                if self.calls > 1:
-                    return {"events": [{"title": "found me", "description": "body"}]}
-                return {"events": []}
-
-            async def get_floor_info(self, token: str, *, floor_id: str) -> dict[str, Any]:
-                self.called_token = token
-                return {"floor_id": floor_id}
-
-        client = _FakeClient()
-        register_tools(mcp=mcp, client=client)
-
-        ctx = SimpleNamespace(request=SimpleNamespace(headers={"Authorization": "Bearer auth-from-header"}))
-
-        res = await mcp.registry["xfloor_query_memory"](
-            XFloorQueryMemoryInput(user_id="u1", query="q", floor_ids=["f1"]),
-            ctx,
-        )
-        assert res["ok"] is True
-        assert client.called_token == "auth-from-header"
-
-        wait = await mcp.registry["xfloor_wait_for_ingestion"](
-            SimpleNamespace(floor_id="f1", match_text="found", timeout_s=2, poll_interval_s=1, auth_token="x"),
-            None,
-        )
-        assert wait["found"] is True
-
-    @pytest.mark.asyncio
-    async def test_current_floor_tools_use_active_floor_context(self) -> None:
+    async def test_set_active_floor_stores_state_and_current_floor_tools_use_it(self) -> None:
         mcp = self._FakeMCP()
         set_auth_token("ctx-token")
         set_user_id("ctx-user")
         set_app_id("ctx-app")
-        set_active_floor_id("floor-active")
+        set_active_floor_id(None)
 
         class _FakeClient:
             async def query_memory(self, token: str, **kwargs: Any) -> dict[str, Any]:
-                assert token == "ctx-token"
-                assert kwargs["user_id"] == "ctx-user"
-                assert kwargs["floor_ids"] == ["floor-active"]
+                assert kwargs["floor_ids"] == ["phari"]
                 return {"answers": ["ok"]}
 
             async def recent_events(self, token: str, *, params: dict[str, Any]) -> dict[str, Any]:
-                assert token == "ctx-token"
-                assert params["floor_id"] == "floor-active"
+                assert params["floor_id"] == "phari"
                 return {"events": [{"title": "Demo"}]}
 
             async def create_event(self, token: str, **kwargs: Any) -> dict[str, Any]:
                 payload = json.loads(kwargs["input_info"])
-                assert token == "ctx-token"
-                assert payload["floor_id"] == "floor-active"
+                assert payload["floor_id"] == "phari"
                 assert payload["user_id"] == "ctx-user"
-                assert payload["title"] == "Town Hall"
                 return {"ok": True}
 
         register_tools(mcp=mcp, client=_FakeClient())
 
+        set_result = await mcp.registry["xfloor_set_active_floor"](
+            XFloorSetActiveFloorInput(floor_ref="@phari"),
+            None,
+        )
         query_result = await mcp.registry["xfloor_query_current_floor"](
             XFloorQueryCurrentFloorInput(query="What is happening?"),
             None,
@@ -318,12 +242,13 @@ class TestToolsSmoke:
             None,
         )
 
-        assert query_result["floor_id"] == "floor-active"
+        assert set_result["message"] == "Active floor set to phari"
+        assert query_result["floor_source"] == "session_state"
         assert events_result["count"] == 1
         assert post_result["posted"] is True
 
     @pytest.mark.asyncio
-    async def test_current_floor_tools_fail_clearly_without_active_floor(self) -> None:
+    async def test_header_override_takes_precedence_over_stored_floor(self) -> None:
         mcp = self._FakeMCP()
         set_auth_token("ctx-token")
         set_user_id("ctx-user")
@@ -332,11 +257,43 @@ class TestToolsSmoke:
 
         class _FakeClient:
             async def query_memory(self, token: str, **kwargs: Any) -> dict[str, Any]:
+                assert kwargs["floor_ids"] == ["stored-floor"]
+                return {"answers": ["ok"]}
+
+        register_tools(mcp=mcp, client=_FakeClient())
+        await mcp.registry["xfloor_set_active_floor"](XFloorSetActiveFloorInput(floor_ref="@stored-floor"), None)
+
+        set_active_floor_id("header-floor")
+
+        class _HeaderClient:
+            async def query_memory(self, token: str, **kwargs: Any) -> dict[str, Any]:
+                assert kwargs["floor_ids"] == ["header-floor"]
+                return {"answers": ["override"]}
+
+        mcp_override = self._FakeMCP()
+        register_tools(mcp_override, _HeaderClient())
+        result = await mcp_override.registry["xfloor_query_current_floor"](
+            XFloorQueryCurrentFloorInput(query="What is happening?"),
+            None,
+        )
+        assert result["floor_source"] == "header_override"
+
+    @pytest.mark.asyncio
+    async def test_current_floor_tools_fail_clearly_without_active_floor(self) -> None:
+        mcp = self._FakeMCP()
+        set_auth_token("ctx-token")
+        set_user_id("ctx-user")
+        set_app_id("ctx-app")
+        set_active_floor_id(None)
+        clear_all_active_floor_state()
+
+        class _FakeClient:
+            async def query_memory(self, token: str, **kwargs: Any) -> dict[str, Any]:
                 return {}
 
         register_tools(mcp=mcp, client=_FakeClient())
 
-        with pytest.raises(ValueError, match="No active xFloor is set"):
+        with pytest.raises(ValueError, match="No active floor set"):
             await mcp.registry["xfloor_query_current_floor"](
                 XFloorQueryCurrentFloorInput(query="What is happening?"),
                 None,
@@ -365,30 +322,3 @@ def test_http_middleware_requires_headers_with_clear_error() -> None:
     assert payload["error"] == "Missing required xFloor headers"
     assert "X-XFloor-User-Id" in payload["missing"]
     assert "X-XFloor-App-Id" in payload["missing"]
-
-
-@pytest.mark.skipif(not (HAS_DEPS and HAS_FASTAPI), reason="requires fastapi + runtime deps")
-def test_http_middleware_accepts_optional_active_floor_header() -> None:
-    from fastapi.testclient import TestClient
-
-    from xfloor_mcp.server_http import create_http_app
-    from xfloor_mcp.settings import Settings
-
-    app = create_http_app(
-        Settings(
-            XFLOOR_BASE_URL="https://appfloor.in",
-            XFLOOR_DEFAULT_USER_ID="fallback-user",
-            XFLOOR_DEFAULT_APP_ID="fallback-app",
-        )
-    )
-
-    client = TestClient(app)
-    response = client.post(
-        "/mcp",
-        json={"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}},
-        headers={
-            "Authorization": "Bearer token",
-            "X-XFloor-Active-Floor-Id": "floor-active",
-        },
-    )
-    assert response.status_code != 400

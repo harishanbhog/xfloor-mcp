@@ -7,6 +7,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field, field_validator
 
+from .active_floor_state import get_active_floor_state, resolve_floor_reference, set_active_floor_state
 from .request_context import get_active_floor_id, get_auth_token, get_user_id
 from .xfloor_client import XFloorClient
 
@@ -65,6 +66,11 @@ class XFloorWaitForIngestionInput(BaseModel):
         return value
 
 
+class XFloorSetActiveFloorInput(BaseModel):
+    floor_ref: str | None = Field(default=None, description="Floor reference like phari, @phari, croma, or @croma")
+    floor_id: str | None = Field(default=None, description="Optional direct floor ID override")
+
+
 class XFloorQueryCurrentFloorInput(BaseModel):
     query: str = Field(description="Natural-language question to ask about the currently active xFloor")
     topic: str | None = Field(default=None, description="Optional topic hint to improve retrieval focus")
@@ -116,20 +122,31 @@ def _extract_auth_token(ctx: Any, token_override: str | None) -> str:
     raise ValueError("Missing Bearer auth token. Set Authorization header or provide auth_token.")
 
 
-def _require_active_floor_id() -> str:
-    floor_id = get_active_floor_id()
-    if not floor_id:
-        raise ValueError(
-            "No active xFloor is set. Provide X-XFloor-Active-Floor-Id on the MCP request to use current-floor tools."
-        )
-    return floor_id
-
-
 def _require_context_user_id() -> str:
     user_id = get_user_id()
     if not user_id:
         raise ValueError("Missing xFloor user context. Provide X-XFloor-User-Id on the MCP request.")
     return user_id
+
+
+def _resolve_active_floor_id() -> dict[str, str]:
+    header_floor_id = get_active_floor_id()
+    if header_floor_id:
+        return {
+            "floor_id": header_floor_id,
+            "floor_ref": header_floor_id,
+            "source": "header_override",
+        }
+
+    state = get_active_floor_state()
+    if state:
+        return {
+            "floor_id": state["floor_id"],
+            "floor_ref": state["floor_ref"],
+            "source": "session_state",
+        }
+
+    raise ValueError("No active floor set. Please set one first (eg: @phari or use @croma).")
 
 
 def _compact(data: Any) -> dict[str, Any]:
@@ -223,37 +240,54 @@ def register_tools(mcp: Any, client: XFloorClient) -> None:
         }
 
     @mcp.tool(
+        name="xfloor_set_active_floor",
+        description="Use this when the user explicitly wants to select or switch the current xFloor, for example with phrases like 'use @phari' or '@croma'. This stores the active floor for subsequent current-floor tools.",
+    )
+    async def xfloor_set_active_floor(input: XFloorSetActiveFloorInput, ctx: Any = None) -> dict[str, Any]:
+        resolved = resolve_floor_reference(floor_ref=input.floor_ref, floor_id=input.floor_id)
+        state = set_active_floor_state(floor_id=resolved["floor_id"], floor_ref=resolved["floor_ref"])
+        return {
+            "ok": True,
+            "message": f"Active floor set to {state['floor_ref']}",
+            "floor_ref": state["floor_ref"],
+            "floor_id": state["floor_id"],
+            "state_scope": "in_memory_session",
+        }
+
+    @mcp.tool(
         name="xfloor_query_current_floor",
-        description="Use this when the user wants to ask a question about the currently active xFloor. This preferred ChatGPT-facing tool resolves auth, user, app, and active floor from server context.",
+        description="Use this when the user wants to ask a question about the currently active xFloor. This tool uses the active floor selected by xfloor_set_active_floor, with the request header acting only as an optional override/debug path.",
     )
     async def xfloor_query_current_floor(input: XFloorQueryCurrentFloorInput, ctx: Any = None) -> dict[str, Any]:
         token = _extract_auth_token(ctx, None)
-        floor_id = _require_active_floor_id()
+        floor = _resolve_active_floor_id()
         user_id = _require_context_user_id()
         query_text = input.query if not input.topic else f"{input.query}\n\nTopic: {input.topic}"
         result = await client.query_memory(
             token,
             user_id=user_id,
             query=query_text,
-            floor_ids=[floor_id],
+            floor_ids=[floor["floor_id"]],
             k=input.limit,
             include_metadata="1",
             summary_needed="1",
         )
         return {
-            "floor_id": floor_id,
+            "floor_id": floor["floor_id"],
+            "floor_ref": floor["floor_ref"],
+            "floor_source": floor["source"],
             "query": input.query,
             "result": _compact(result),
         }
 
     @mcp.tool(
         name="xfloor_get_current_floor_events",
-        description="Use this when the user wants recent or upcoming events from the currently active xFloor. This preferred ChatGPT-facing tool resolves auth, user, app, and active floor from server context.",
+        description="Use this when the user wants recent or upcoming events from the currently active xFloor. This tool uses the active floor selected by xfloor_set_active_floor, with the request header acting only as an optional override/debug path.",
     )
     async def xfloor_get_current_floor_events(input: XFloorGetCurrentFloorEventsInput, ctx: Any = None) -> dict[str, Any]:
         token = _extract_auth_token(ctx, None)
-        floor_id = _require_active_floor_id()
-        params: dict[str, Any] = {"floor_id": floor_id}
+        floor = _resolve_active_floor_id()
+        params: dict[str, Any] = {"floor_id": floor["floor_id"]}
         if input.limit is not None:
             params["limit"] = input.limit
         if input.event_type:
@@ -261,22 +295,24 @@ def register_tools(mcp: Any, client: XFloorClient) -> None:
         result = await client.recent_events(token, params=params)
         events = _extract_events_list(result)
         return {
-            "floor_id": floor_id,
+            "floor_id": floor["floor_id"],
+            "floor_ref": floor["floor_ref"],
+            "floor_source": floor["source"],
             "count": len(events),
             "events": events,
         }
 
     @mcp.tool(
         name="xfloor_post_event_to_current_floor",
-        description="Use this when the user explicitly wants to create/post an event in the currently active xFloor. This preferred ChatGPT-facing tool resolves auth, user, app, and active floor from server context.",
+        description="Use this when the user explicitly wants to create/post an event in the currently active xFloor. This tool uses the active floor selected by xfloor_set_active_floor, with the request header acting only as an optional override/debug path.",
     )
     async def xfloor_post_event_to_current_floor(input: XFloorPostEventToCurrentFloorInput, ctx: Any = None) -> dict[str, Any]:
         token = _extract_auth_token(ctx, None)
-        floor_id = _require_active_floor_id()
+        floor = _resolve_active_floor_id()
         user_id = _require_context_user_id()
 
         payload: dict[str, Any] = {
-            "floor_id": floor_id,
+            "floor_id": floor["floor_id"],
             "block_id": input.block_id,
             "user_id": user_id,
             "title": input.title,
@@ -298,7 +334,9 @@ def register_tools(mcp: Any, client: XFloorClient) -> None:
         input_info = json.dumps(payload)
         result = await client.create_event(token, input_info=input_info, files=None)
         return {
-            "floor_id": floor_id,
+            "floor_id": floor["floor_id"],
+            "floor_ref": floor["floor_ref"],
+            "floor_source": floor["source"],
             "posted": True,
             "event": {
                 "title": input.title,

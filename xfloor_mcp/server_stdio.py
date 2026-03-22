@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from mcp.server.fastmcp import FastMCP
 
-from .request_context import set_app_id, set_user_id
+from .request_context import set_app_id, set_session_key, set_user_id
 from .settings import Settings
 from .tools import register_tools
 from .xfloor_client import XFloorClient
@@ -29,6 +29,10 @@ async def run_stdio(settings: Settings) -> None:
         set_user_id(settings.xfloor_default_user_id)
     if settings.xfloor_default_app_id:
         set_app_id(settings.xfloor_default_app_id)
+
+    session_user = settings.xfloor_default_user_id or "stdio-user"
+    session_app = settings.xfloor_default_app_id or "stdio-app"
+    set_session_key(f"stdio:{session_user}:{session_app}")
 
     mcp = create_stdio_server(settings)
     await mcp.run_stdio_async()

@@ -153,28 +153,49 @@ curl -s https://your-real-domain.com/healthz
 
 ## ChatGPT-facing v1 tool surface
 
-This repo now exposes an additive **v1 ChatGPT-facing MCP surface** on top of the existing tools.
+This repo now exposes an additive **v1 ChatGPT-facing MCP surface** on top of the existing tools. The preferred floor-selection flow is now **tool-driven** instead of header-driven.
 
-### Active-floor model
+### Preferred ChatGPT-facing flow
 
-- ChatGPT-facing tools operate on **one active floor at a time**.
-- The active floor is resolved from request/server context, not from normal tool input.
-- Provide the optional request header `X-XFloor-Active-Floor-Id` to select the current floor.
-- If the active floor is missing, the new current-floor tools fail with a clear actionable error.
+1. Connect with the normal required headers:
+   - `Authorization: Bearer <your-token>`
+   - `X-XFloor-User-Id: <your-user-id>`
+   - `X-XFloor-App-Id: <your-app-id>`
+2. Call `xfloor_set_active_floor` once, for example with `@phari`.
+3. Then use the current-floor tools without passing a floor ID or the active-floor header.
 
 ### New preferred ChatGPT-facing tools
 
-1. `xfloor_query_current_floor`
+1. `xfloor_set_active_floor`
+   - Use this when the user explicitly wants to select or switch the current xFloor, for example with phrases like `use @phari` or `@croma`.
+   - Input: `floor_ref` (accepts `phari`, `@phari`, `croma`, `@croma`) and optional `floor_id`.
+
+2. `xfloor_query_current_floor`
    - Use this when the user wants to ask a question about the currently active xFloor.
    - Inputs: `query`, optional `topic`, optional `limit`.
 
-2. `xfloor_get_current_floor_events`
+3. `xfloor_get_current_floor_events`
    - Use this when the user wants recent or upcoming events from the currently active xFloor.
    - Inputs: optional `limit`, optional `event_type`.
 
-3. `xfloor_post_event_to_current_floor`
+4. `xfloor_post_event_to_current_floor`
    - Use this when the user explicitly wants to create/post an event in the currently active xFloor.
-   - Inputs: `title`, `description`, plus a few optional event fields like `location`, `start_date`, `start_time`, `end_date`, and `end_time`.
+   - Inputs: `title`, `description`, plus optional event fields like `location`, `start_date`, `start_time`, `end_date`, and `end_time`.
+
+### Active-floor precedence rules
+
+Current-floor tools resolve the floor in this order:
+
+1. `X-XFloor-Active-Floor-Id` header, if present (debug/override path)
+2. In-memory server-side active-floor state previously set by `xfloor_set_active_floor`
+3. Otherwise the tool fails clearly and asks the caller to set a floor first, for example `@phari` or `use @croma`
+
+### State lifetime / v1 limitation
+
+- Active-floor state is stored in **in-memory server-side session state**.
+- For HTTP, it is keyed by MCP session ID when available, otherwise it falls back to a stable user/app-based key.
+- For stdio, it is process-local in-memory state.
+- State resets on server restart.
 
 ### Backward compatibility
 
@@ -186,21 +207,29 @@ The original tools are still preserved and continue to work unchanged:
 - `xfloor_get_floor_info`
 - `xfloor_wait_for_ingestion`
 
-Use the **old tools** when you need low-level control such as explicit `floor_ids`, raw `input_info`, or floor-specific plumbing.
-Use the **new tools** when you want a cleaner ChatGPT-facing experience for a single active floor.
+Use the **old tools** when you need low-level control such as explicit `floor_ids`, raw `input_info`, or floor-specific plumbing. Use the **new tools** when you want a cleaner ChatGPT-facing experience for a single active floor.
 
-### Example headers for the v1 surface
+### Inspector example without active-floor header
+
+Connect with headers:
 
 - `Authorization: Bearer <your-token>`
 - `X-XFloor-User-Id: <your-user-id>`
 - `X-XFloor-App-Id: <your-app-id>`
-- `X-XFloor-Active-Floor-Id: <active-floor-id>`
 
-### Example usage patterns
+Do **not** send `X-XFloor-Active-Floor-Id` for the normal ChatGPT/Inspector flow.
 
-- Ask about current floor: `xfloor_query_current_floor`
-- Show recent events for current floor: `xfloor_get_current_floor_events`
-- Post an event to current floor: `xfloor_post_event_to_current_floor`
+Then run tools in this order:
+
+1. `xfloor_set_active_floor` with: 
+   ```json
+   {"floor_ref": "@phari"}
+   ```
+2. `xfloor_query_current_floor`
+3. `xfloor_get_current_floor_events`
+4. `xfloor_post_event_to_current_floor`
+
+The `X-XFloor-Active-Floor-Id` header is still supported as an optional override/debug mechanism.
 
 ## Verify MCP with Inspector (post-deploy)
 
@@ -217,12 +246,13 @@ In Inspector:
 - Header: `Authorization: Bearer <your-token>`
 - Header: `X-XFloor-User-Id: <your-user-id>`
 - Header: `X-XFloor-App-Id: <your-app-id>`
-- Header: `X-XFloor-Active-Floor-Id: <active-floor-id>`
+- Optional debug override header: `X-XFloor-Active-Floor-Id: <active-floor-id>`
 
 Then run tools:
 
-- Preferred v1 tools: `xfloor_query_current_floor`, `xfloor_get_current_floor_events`, `xfloor_post_event_to_current_floor`
-- Backward-compatible tools: `xfloor_query_memory`, `xfloor_create_event`, `xfloor_recent_events`, `xfloor_get_floor_info`, `xfloor_wait_for_ingestion`
+- First set a floor with: `xfloor_set_active_floor`
+- Then use the preferred v1 tools: `xfloor_query_current_floor`, `xfloor_get_current_floor_events`, `xfloor_post_event_to_current_floor`
+- Backward-compatible tools remain available: `xfloor_query_memory`, `xfloor_create_event`, `xfloor_recent_events`, `xfloor_get_floor_info`, `xfloor_wait_for_ingestion`
 
 ---
 
