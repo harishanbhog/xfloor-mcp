@@ -248,7 +248,7 @@ class TestToolsSmoke:
         assert post_result["posted"] is True
 
     @pytest.mark.asyncio
-    async def test_header_override_takes_precedence_over_stored_floor(self) -> None:
+    async def test_stored_floor_takes_precedence_over_stale_header(self) -> None:
         mcp = self._FakeMCP()
         set_auth_token("ctx-token")
         set_user_id("ctx-user")
@@ -267,12 +267,34 @@ class TestToolsSmoke:
 
         class _HeaderClient:
             async def query_memory(self, token: str, **kwargs: Any) -> dict[str, Any]:
-                assert kwargs["floor_ids"] == ["header-floor"]
-                return {"answers": ["override"]}
+                assert kwargs["floor_ids"] == ["stored-floor"]
+                return {"answers": ["stored"]}
 
         mcp_override = self._FakeMCP()
         register_tools(mcp_override, _HeaderClient())
         result = await mcp_override.registry["xfloor_query_current_floor"](
+            XFloorQueryCurrentFloorInput(query="What is happening?"),
+            None,
+        )
+        assert result["floor_source"] == "session_state"
+
+
+    @pytest.mark.asyncio
+    async def test_header_override_is_used_when_no_stored_floor_exists(self) -> None:
+        mcp = self._FakeMCP()
+        set_auth_token("ctx-token")
+        set_user_id("ctx-user")
+        set_app_id("ctx-app")
+        clear_all_active_floor_state()
+        set_active_floor_id("header-floor")
+
+        class _HeaderClient:
+            async def query_memory(self, token: str, **kwargs: Any) -> dict[str, Any]:
+                assert kwargs["floor_ids"] == ["header-floor"]
+                return {"answers": ["override"]}
+
+        register_tools(mcp, _HeaderClient())
+        result = await mcp.registry["xfloor_query_current_floor"](
             XFloorQueryCurrentFloorInput(query="What is happening?"),
             None,
         )

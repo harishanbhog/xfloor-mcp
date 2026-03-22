@@ -186,9 +186,11 @@ This repo now exposes an additive **v1 ChatGPT-facing MCP surface** on top of th
 
 Current-floor tools resolve the floor in this order:
 
-1. `X-XFloor-Active-Floor-Id` header, if present (debug/override path)
-2. In-memory server-side active-floor state previously set by `xfloor_set_active_floor`
+1. In-memory server-side active-floor state previously set by `xfloor_set_active_floor`
+2. `X-XFloor-Active-Floor-Id` header, if present, as a fallback/debug path
 3. Otherwise the tool fails clearly and asks the caller to set a floor first, for example `@phari` or `use @croma`
+
+This means a floor explicitly selected with `xfloor_set_active_floor` wins over a stale Inspector header value.
 
 ### State lifetime / v1 limitation
 
@@ -229,7 +231,7 @@ Then run tools in this order:
 3. `xfloor_get_current_floor_events`
 4. `xfloor_post_event_to_current_floor`
 
-The `X-XFloor-Active-Floor-Id` header is still supported as an optional override/debug mechanism.
+The `X-XFloor-Active-Floor-Id` header is still supported as an optional fallback/debug mechanism, but a floor chosen with `xfloor_set_active_floor` now takes precedence.
 
 ## Verify MCP with Inspector (post-deploy)
 

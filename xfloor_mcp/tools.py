@@ -130,20 +130,20 @@ def _require_context_user_id() -> str:
 
 
 def _resolve_active_floor_id() -> dict[str, str]:
-    header_floor_id = get_active_floor_id()
-    if header_floor_id:
-        return {
-            "floor_id": header_floor_id,
-            "floor_ref": header_floor_id,
-            "source": "header_override",
-        }
-
     state = get_active_floor_state()
     if state:
         return {
             "floor_id": state["floor_id"],
             "floor_ref": state["floor_ref"],
             "source": "session_state",
+        }
+
+    header_floor_id = get_active_floor_id()
+    if header_floor_id:
+        return {
+            "floor_id": header_floor_id,
+            "floor_ref": header_floor_id,
+            "source": "header_override",
         }
 
     raise ValueError("No active floor set. Please set one first (eg: @phari or use @croma).")
