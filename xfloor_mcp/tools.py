@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import mimetypes
+import os
 from typing import Any
 
 from pydantic import BaseModel, Field, field_validator
@@ -24,8 +26,9 @@ class XFloorQueryMemoryInput(BaseModel):
 
 
 class XFloorFileInput(BaseModel):
-    filename: str
-    content_base64: str
+    filename: str | None = Field(default=None, description="Optional filename override")
+    content_base64: str | None = Field(default=None, description="Base64 encoded file payload")
+    file_path: str | None = Field(default=None, description="Optional local file path for environments that can hand off files by path")
     mime_type: str | None = "application/octet-stream"
 
 
@@ -187,7 +190,15 @@ def _validate_post_event_attachments(files: list[XFloorFileInput] | None) -> lis
     pdfs: list[XFloorFileInput] = []
 
     for file in files:
+        if not (file.content_base64 and file.content_base64.strip()) and not (file.file_path and file.file_path.strip()):
+            raise ValueError("Each attachment requires either content_base64 or file_path.")
         mime = (file.mime_type or "").strip().lower()
+        if not mime or mime == "application/octet-stream":
+            candidate_name = (file.filename or "").strip()
+            if not candidate_name and file.file_path:
+                candidate_name = os.path.basename(file.file_path.strip())
+            guessed, _ = mimetypes.guess_type(candidate_name)
+            mime = (guessed or "").lower()
         if mime in {"image/png", "image/jpeg", "image/jpg"}:
             images.append(file)
         elif mime.startswith("video/"):

@@ -5,6 +5,8 @@ from __future__ import annotations
 import base64
 import json
 import logging
+import mimetypes
+import os
 from typing import Any, IO
 
 import httpx
@@ -108,10 +110,28 @@ class XFloorClient:
         for item in files or []:
             filename = item.get("filename")
             content_base64 = item.get("content_base64")
+            file_path = item.get("file_path")
             mime_type = item.get("mime_type")
-            if not filename or not content_base64:
-                raise ValueError("Each file requires filename and content_base64.")
-            decoded = base64.b64decode(content_base64)
+            if content_base64:
+                if not filename:
+                    raise ValueError("filename is required when using content_base64.")
+                decoded = base64.b64decode(content_base64)
+            elif file_path:
+                normalized_path = str(file_path).strip()
+                if not normalized_path:
+                    raise ValueError("file_path cannot be empty.")
+                if not os.path.exists(normalized_path):
+                    raise ValueError(f"file_path does not exist: {normalized_path}")
+                filename = filename or os.path.basename(normalized_path)
+                if not filename:
+                    raise ValueError("Could not derive filename from file_path.")
+                with open(normalized_path, "rb") as f:
+                    decoded = f.read()
+                if not mime_type:
+                    guessed, _ = mimetypes.guess_type(filename)
+                    mime_type = guessed or "application/octet-stream"
+            else:
+                raise ValueError("Each file requires either content_base64 or file_path.")
             request_files.append(("files", (filename, decoded, mime_type or "application/octet-stream")))
 
         return await self._request_json(

@@ -218,6 +218,61 @@ class TestToolsSmoke:
             client.validate_input_info('{"floor_id":"f1"}')
 
     @pytest.mark.asyncio
+    async def test_create_event_accepts_file_path_handoff(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Any) -> None:
+        captured: list[dict[str, Any]] = []
+
+        class _FakeAsyncClient:
+            def __init__(self, timeout: float) -> None:
+                self.timeout = timeout
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, exc_type, exc, tb):
+                return None
+
+            async def request(self, **kwargs):
+                captured.append(kwargs)
+                return self_outer._MockResponse({"ok": True})
+
+        self_outer = self
+        monkeypatch.setattr("xfloor_mcp.xfloor_client.httpx.AsyncClient", _FakeAsyncClient)
+
+        set_auth_token("token")
+        set_user_id("user-ctx")
+        set_app_id("app-ctx")
+
+        image_path = tmp_path / "demo.png"
+        image_path.write_bytes(b"fake-png-content")
+
+        client = XFloorClient(base_url="https://appfloor.in")
+        valid_info = json.dumps(
+            {
+                "floor_id": "f1",
+                "block_id": "b1",
+                "user_id": "u1",
+                "title": "Title",
+                "description": "Desc",
+            }
+        )
+        await client.create_event(
+            None,
+            input_info=valid_info,
+            files=[
+                {
+                    "file_path": str(image_path),
+                    "mime_type": "image/png",
+                }
+            ],
+        )
+
+        multipart_fields = captured[0]["files"]
+        file_entries = [entry for entry in multipart_fields if entry[0] == "files"]
+        assert len(file_entries) == 1
+        assert file_entries[0][1][0] == "demo.png"
+        assert file_entries[0][1][2] == "image/png"
+
+    @pytest.mark.asyncio
     async def test_set_active_floor_stores_state_and_current_floor_tools_use_it(self) -> None:
         mcp = self._FakeMCP()
         set_auth_token("ctx-token")
@@ -414,6 +469,39 @@ class TestToolsSmoke:
                 XFloorPostEventToCurrentFloorInput(title="Too many", description="bad", files=files),
                 None,
             )
+
+    @pytest.mark.asyncio
+    async def test_post_event_to_current_floor_accepts_file_path_and_infers_image_type(self) -> None:
+        mcp = self._FakeMCP()
+        set_auth_token("ctx-token")
+        set_user_id("ctx-user")
+        set_app_id("ctx-app")
+        set_active_floor_id(None)
+
+        class _FakeClient:
+            async def create_event(self, token: str, **kwargs: Any) -> dict[str, Any]:
+                files = kwargs["files"]
+                assert len(files) == 1
+                assert files[0]["file_path"] == "/tmp/luminous-ups.jpg"
+                return {"ok": True}
+
+        register_tools(mcp=mcp, client=_FakeClient())
+        await mcp.registry["xfloor_set_active_floor"](XFloorSetActiveFloorInput(floor_ref="@phari"), None)
+
+        result = await mcp.registry["xfloor_post_event_to_current_floor"](
+            XFloorPostEventToCurrentFloorInput(
+                title="Luminous UPS",
+                description="Just installed at home.",
+                files=[
+                    XFloorFileInput(
+                        file_path="/tmp/luminous-ups.jpg",
+                    )
+                ],
+            ),
+            None,
+        )
+        assert result["posted"] is True
+        assert result["event"]["attachments_count"] == 1
 
     @pytest.mark.asyncio
     async def test_real_oauth_verifier_uses_auth0_metadata_and_claims(self, monkeypatch: pytest.MonkeyPatch) -> None:
