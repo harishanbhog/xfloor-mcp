@@ -901,7 +901,7 @@ def test_oauth_protected_resource_metadata_endpoint_returns_expected_values() ->
     response = client.get("/.well-known/oauth-protected-resource")
     assert response.status_code == 200
     payload = response.json()
-    assert payload["resource"] == "https://demo.ngrok-free.app"
+    assert payload["resource"] == "https://xFloorMCPTest"
     assert payload["authorization_servers"] == ["https://dev-aobq6ntuhxzmcu6j.jp.auth0.com/"]
 
     openid_response = client.get("/mcp/.well-known/openid-configuration")
@@ -910,6 +910,30 @@ def test_oauth_protected_resource_metadata_endpoint_returns_expected_values() ->
     assert openid_payload["issuer"] == "https://dev-aobq6ntuhxzmcu6j.jp.auth0.com/"
     oauth_as_response = client.get("/mcp/.well-known/oauth-authorization-server")
     assert oauth_as_response.status_code == 200
+
+
+@pytest.mark.skipif(not (HAS_DEPS and HAS_FASTAPI), reason="requires fastapi + runtime deps")
+def test_oauth_protected_resource_falls_back_to_oauth_resource_when_audience_missing() -> None:
+    from fastapi.testclient import TestClient
+
+    from xfloor_mcp.server_http import create_http_app
+    from xfloor_mcp.settings import Settings
+
+    app = create_http_app(
+        Settings(
+            XFLOOR_BASE_URL="https://appfloor.in",
+            XFLOOR_AUTH_MODE="oauth",
+            XFLOOR_AUTH0_ISSUER="https://dev-aobq6ntuhxzmcu6j.jp.auth0.com/",
+            XFLOOR_AUTH0_AUDIENCE="",
+            XFLOOR_OAUTH_RESOURCE="https://demo.ngrok-free.app/mcp",
+        )
+    )
+
+    client = TestClient(app)
+    response = client.get("/.well-known/oauth-protected-resource")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["resource"] == "https://demo.ngrok-free.app/mcp"
 
 
 @pytest.mark.skipif(not HAS_DEPS, reason="requires pydantic/httpx")

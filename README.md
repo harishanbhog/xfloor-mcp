@@ -58,7 +58,8 @@ XFLOOR_OAUTH_STUB_ENABLED=false
 XFLOOR_AUTH0_DOMAIN=dev-aobq6ntuhxzmcu6j.jp.auth0.com
 XFLOOR_AUTH0_ISSUER=https://dev-aobq6ntuhxzmcu6j.jp.auth0.com/
 XFLOOR_AUTH0_AUDIENCE=https://xFloorMCPTest
-XFLOOR_OAUTH_RESOURCE=https://<your-current-ngrok-domain>
+# Optional override; when omitted, oauth protected-resource metadata uses XFLOOR_AUTH0_AUDIENCE.
+XFLOOR_OAUTH_RESOURCE=https://xFloorMCPTest
 XFLOOR_OAUTH_STUB_ISS=https://example.auth0.com/
 XFLOOR_OAUTH_STUB_SUB=auth0|demo-user
 XFLOOR_OAUTH_STUB_USER_ID=oauth-dev-user
@@ -128,7 +129,8 @@ XFLOOR_AUTH_MODE=oauth
 XFLOOR_AUTH0_DOMAIN=dev-aobq6ntuhxzmcu6j.jp.auth0.com
 XFLOOR_AUTH0_ISSUER=https://dev-aobq6ntuhxzmcu6j.jp.auth0.com/
 XFLOOR_AUTH0_AUDIENCE=https://xFloorMCPTest
-XFLOOR_OAUTH_RESOURCE=https://<your-current-ngrok-domain>
+# Optional override; default protected resource = XFLOOR_AUTH0_AUDIENCE
+XFLOOR_OAUTH_RESOURCE=https://xFloorMCPTest
 XFLOOR_OAUTH_STUB_USER_ID=oauth-dev-user
 XFLOOR_DEFAULT_APP_ID=local-dev-app
 ```
@@ -138,7 +140,7 @@ Notes:
 - Active-floor session behavior is unchanged.
 - The identity cache is in-memory only and resets on process restart.
 - Dynamic client registration is expected on the Auth0 side via `https://dev-aobq6ntuhxzmcu6j.jp.auth0.com/oidc/register`.
-- `XFLOOR_OAUTH_RESOURCE` should be the current public ngrok base URL for MCP testing.
+- `resource_metadata` in Bearer challenges is automatically built from your MCP host URL; the protected-resource `resource` value defaults to `XFLOOR_AUTH0_AUDIENCE` so Auth0 issues tokens for your API identifier.
 - Production Auth0 tenant/app/API values can later be swapped by changing env only.
 
 Testing with ChatGPT developer mode + ngrok:

@@ -188,9 +188,14 @@ def _verify_auth0_access_token(token: str, settings: Settings) -> dict[str, Any]
 
 def protected_resource_metadata(settings: Settings) -> dict[str, Any]:
     issuer = _normalize_issuer(settings)
-    resource = (settings.xfloor_oauth_resource or "").strip()
+    auth0_audience = (settings.xfloor_auth0_audience or "").strip()
+    configured_resource = (settings.xfloor_oauth_resource or "").strip()
+    resource = auth0_audience or configured_resource
     if not resource:
-        raise OAuthResolutionError("OAuth mode requires XFLOOR_OAUTH_RESOURCE to be configured.", status_code=500)
+        raise OAuthResolutionError(
+            "OAuth mode requires XFLOOR_AUTH0_AUDIENCE (or XFLOOR_OAUTH_RESOURCE) to be configured.",
+            status_code=500,
+        )
 
     return {
         "resource": resource,
