@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
+import logging
 from typing import Any, AsyncIterator
 
 from fastapi import FastAPI, Request
@@ -13,6 +14,8 @@ from mcp.server.fastmcp import FastMCP
 from .auth import (
     OAuthResolutionError,
     build_www_authenticate_header,
+    is_public_discovery_path,
+    oauth_authorization_server_metadata,
     protected_resource_metadata,
     resolve_request_identity,
 )
@@ -25,10 +28,13 @@ from .request_context import (
     set_oauth_subject,
     set_session_key,
     set_user_id,
+    set_xfloor_service_token,
 )
 from .settings import Settings, get_settings
 from .tools import register_tools
 from .xfloor_client import XFloorClient
+
+logger = logging.getLogger(__name__)
 
 
 def _build_mcp_app(mcp: FastMCP) -> Any:
@@ -93,7 +99,11 @@ def create_http_app(settings: Settings) -> FastAPI:
 
     @app.middleware("http")
     async def xfloor_context_middleware(request: Request, call_next):
-        is_mcp_path = request.url.path == "/mcp" or request.url.path.startswith("/mcp/")
+        path = request.url.path
+        is_mcp_path = path == "/mcp" or path.startswith("/mcp/")
+        if is_public_discovery_path(path):
+            logger.info("Bypassing auth for public OAuth discovery path: %s", path)
+            return await call_next(request)
         if not is_mcp_path:
             return await call_next(request)
 
@@ -110,6 +120,8 @@ def create_http_app(settings: Settings) -> FastAPI:
             headers: dict[str, str] = {}
             if settings.xfloor_auth_mode == "oauth":
                 resource_metadata_url = str(request.url_for("oauth_protected_resource_metadata"))
+                if exc.status_code == 401:
+                    logger.info("Returning 401 Bearer challenge for protected MCP request without valid auth.")
                 headers["WWW-Authenticate"] = build_www_authenticate_header(
                     settings,
                     resource_metadata_url,
@@ -123,6 +135,7 @@ def create_http_app(settings: Settings) -> FastAPI:
 
         set_auth_mode(identity.auth_mode)
         set_auth_token(identity.auth_token)
+        set_xfloor_service_token(identity.service_token)
         set_user_id(identity.user_id)
         set_app_id(identity.app_id)
         set_active_floor_id(identity.active_floor_id)
@@ -134,6 +147,7 @@ def create_http_app(settings: Settings) -> FastAPI:
         finally:
             set_auth_mode(None)
             set_auth_token(None)
+            set_xfloor_service_token(None)
             set_user_id(None)
             set_app_id(None)
             set_active_floor_id(None)
@@ -148,6 +162,26 @@ def create_http_app(settings: Settings) -> FastAPI:
     @app.get("/.well-known/oauth-protected-resource", name="oauth_protected_resource_metadata")
     async def oauth_protected_resource_metadata() -> dict[str, Any]:
         return protected_resource_metadata(settings)
+
+    @app.get("/mcp/.well-known/oauth-protected-resource")
+    async def oauth_protected_resource_metadata_mcp_alias() -> dict[str, Any]:
+        return protected_resource_metadata(settings)
+
+    @app.get("/.well-known/openid-configuration")
+    async def openid_configuration() -> dict[str, Any]:
+        return oauth_authorization_server_metadata(settings)
+
+    @app.get("/.well-known/oauth-authorization-server")
+    async def oauth_authorization_server() -> dict[str, Any]:
+        return oauth_authorization_server_metadata(settings)
+
+    @app.get("/mcp/.well-known/openid-configuration")
+    async def openid_configuration_mcp_alias() -> dict[str, Any]:
+        return oauth_authorization_server_metadata(settings)
+
+    @app.get("/mcp/.well-known/oauth-authorization-server")
+    async def oauth_authorization_server_mcp_alias() -> dict[str, Any]:
+        return oauth_authorization_server_metadata(settings)
 
     app.mount("/", _build_mcp_app(mcp))
     return app

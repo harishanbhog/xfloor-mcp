@@ -27,10 +27,12 @@ if HAS_DEPS:
         get_oauth_subject,
         get_session_key,
         get_user_id,
+        get_xfloor_service_token,
         set_active_floor_id,
         set_app_id,
         set_auth_token,
         set_user_id,
+        set_xfloor_service_token,
     )
     from xfloor_mcp.settings import Settings
     from xfloor_mcp.tools import (
@@ -81,6 +83,7 @@ class TestToolsSmoke:
         set_session_key("test-session")
         set_active_floor_id(None)
         clear_identity_cache()
+        set_xfloor_service_token(None)
 
     @pytest.mark.asyncio
     async def test_tools_registered_with_expected_inputs(self) -> None:
@@ -130,6 +133,7 @@ class TestToolsSmoke:
         monkeypatch.setattr("xfloor_mcp.xfloor_client.httpx.AsyncClient", _FakeAsyncClient)
 
         set_auth_token("token-ctx")
+        set_xfloor_service_token("service-token-ctx")
         set_user_id("user-ctx")
         set_app_id("app-ctx")
 
@@ -146,7 +150,7 @@ class TestToolsSmoke:
         await client.get_floor_info(None, floor_id="f1")
 
         assert captured[0]["url"].endswith("/agent/memory/query")
-        assert captured[0]["headers"]["Authorization"] == "Bearer token-ctx"
+        assert captured[0]["headers"]["Authorization"] == "Bearer service-token-ctx"
         assert captured[0]["params"]["user_id"] == "user-ctx"
         assert captured[0]["params"]["app_id"] == "app-ctx"
         assert captured[1]["params"]["floor_id"] == "f1"
@@ -513,6 +517,7 @@ def test_http_middleware_noauth_headers_continue_to_work(monkeypatch: pytest.Mon
                 "session_key": get_session_key(),
                 "oauth_issuer": get_oauth_issuer(),
                 "oauth_subject": get_oauth_subject(),
+                "service_token": get_xfloor_service_token(),
             }
         )
 
@@ -546,6 +551,7 @@ def test_http_middleware_noauth_headers_continue_to_work(monkeypatch: pytest.Mon
     assert payload["session_key"] == "session-1"
     assert payload["oauth_issuer"] is None
     assert payload["oauth_subject"] is None
+    assert payload["service_token"] == "noauth-token"
 
 
 def _encode_stub_jwt(claims: dict[str, Any]) -> str:
@@ -574,6 +580,7 @@ def test_http_middleware_oauth_mode_resolves_user_and_sets_context(monkeypatch: 
                 "oauth_issuer": get_oauth_issuer(),
                 "oauth_subject": get_oauth_subject(),
                 "session_key": get_session_key(),
+                "service_token": get_xfloor_service_token(),
             }
         )
 
@@ -590,6 +597,7 @@ def test_http_middleware_oauth_mode_resolves_user_and_sets_context(monkeypatch: 
             XFLOOR_BASE_URL="https://appfloor.in",
             XFLOOR_AUTH_MODE="oauth",
             XFLOOR_OAUTH_STUB_USER_ID="oauth-dev-user",
+            XFLOOR_DEFAULT_AUTH_TOKEN="xfloor-service-token",
             XFLOOR_DEFAULT_APP_ID="fallback-app",
             XFLOOR_AUTH0_ISSUER="https://example.auth0.com/",
             XFLOOR_AUTH0_AUDIENCE="https://xFloorMCPTest",
@@ -610,6 +618,7 @@ def test_http_middleware_oauth_mode_resolves_user_and_sets_context(monkeypatch: 
     assert payload["oauth_issuer"] == "https://example.auth0.com/"
     assert payload["oauth_subject"] == "auth0|demo-user"
     assert payload["session_key"] == "oauth-dev-user:fallback-app"
+    assert payload["service_token"] == "xfloor-service-token"
 
 
 @pytest.mark.skipif(not (HAS_DEPS and HAS_FASTAPI), reason="requires fastapi + runtime deps")
@@ -644,6 +653,7 @@ def test_http_middleware_oauth_mode_uses_identity_cache(monkeypatch: pytest.Monk
         Settings(
             XFLOOR_BASE_URL="https://appfloor.in",
             XFLOOR_AUTH_MODE="oauth",
+            XFLOOR_DEFAULT_AUTH_TOKEN="xfloor-service-token",
             XFLOOR_DEFAULT_APP_ID="fallback-app",
             XFLOOR_AUTH0_ISSUER="https://issuer.example/",
             XFLOOR_AUTH0_AUDIENCE="https://xFloorMCPTest",
@@ -785,6 +795,48 @@ def test_http_middleware_oauth_mode_rejects_missing_token(monkeypatch: pytest.Mo
 
 
 @pytest.mark.skipif(not (HAS_DEPS and HAS_FASTAPI), reason="requires fastapi + runtime deps")
+def test_oauth_discovery_paths_are_public_and_skip_token_verification(monkeypatch: pytest.MonkeyPatch) -> None:
+    from fastapi.testclient import TestClient
+
+    from xfloor_mcp.server_http import create_http_app
+    from xfloor_mcp.settings import Settings
+
+    calls: list[str] = []
+
+    def _should_not_be_called(token: str, settings: Any) -> dict[str, Any]:
+        calls.append(token)
+        raise AssertionError("token verifier should not run on discovery paths")
+
+    monkeypatch.setattr("xfloor_mcp.auth.oauth._verify_auth0_access_token", _should_not_be_called)
+
+    app = create_http_app(
+        Settings(
+            XFLOOR_BASE_URL="https://appfloor.in",
+            XFLOOR_AUTH_MODE="oauth",
+            XFLOOR_DEFAULT_AUTH_TOKEN="xfloor-service-token",
+            XFLOOR_AUTH0_ISSUER="https://dev-aobq6ntuhxzmcu6j.jp.auth0.com/",
+            XFLOOR_AUTH0_AUDIENCE="https://xFloorMCPTest",
+            XFLOOR_OAUTH_RESOURCE="https://demo.ngrok-free.app",
+        )
+    )
+    client = TestClient(app)
+
+    discovery_paths = [
+        "/.well-known/oauth-protected-resource",
+        "/.well-known/openid-configuration",
+        "/.well-known/oauth-authorization-server",
+        "/mcp/.well-known/openid-configuration",
+        "/mcp/.well-known/oauth-authorization-server",
+        "/mcp/.well-known/oauth-protected-resource",
+    ]
+    for path in discovery_paths:
+        response = client.get(path)
+        assert response.status_code == 200
+
+    assert calls == []
+
+
+@pytest.mark.skipif(not (HAS_DEPS and HAS_FASTAPI), reason="requires fastapi + runtime deps")
 def test_http_middleware_oauth_mode_rejects_invalid_token_with_bearer_challenge(monkeypatch: pytest.MonkeyPatch) -> None:
     from fastapi import FastAPI
     from fastapi.responses import JSONResponse
@@ -852,13 +904,21 @@ def test_oauth_protected_resource_metadata_endpoint_returns_expected_values() ->
     assert payload["resource"] == "https://demo.ngrok-free.app"
     assert payload["authorization_servers"] == ["https://dev-aobq6ntuhxzmcu6j.jp.auth0.com/"]
 
+    openid_response = client.get("/mcp/.well-known/openid-configuration")
+    assert openid_response.status_code == 200
+    openid_payload = openid_response.json()
+    assert openid_payload["issuer"] == "https://dev-aobq6ntuhxzmcu6j.jp.auth0.com/"
+    oauth_as_response = client.get("/mcp/.well-known/oauth-authorization-server")
+    assert oauth_as_response.status_code == 200
+
 
 @pytest.mark.skipif(not HAS_DEPS, reason="requires pydantic/httpx")
 @pytest.mark.asyncio
 async def test_current_floor_tools_continue_to_work_with_oauth_resolved_user() -> None:
     clear_identity_cache()
     mcp = TestToolsSmoke._FakeMCP()
-    set_auth_token("oauth-token")
+    set_auth_token("auth0-inbound-token")
+    set_xfloor_service_token("xfloor-service-token")
     set_user_id("oauth-dev-user")
     set_app_id("oauth-app")
     set_active_floor_id(None)
@@ -866,16 +926,19 @@ async def test_current_floor_tools_continue_to_work_with_oauth_resolved_user() -
 
     class _FakeClient:
         async def create_event(self, token: str, **kwargs: Any) -> dict[str, Any]:
+            assert token == "xfloor-service-token"
             payload = json.loads(kwargs["input_info"])
             assert payload["user_id"] == "oauth-dev-user"
             assert payload["floor_id"] == "phari"
             return {"ok": True}
 
         async def recent_events(self, token: str, *, params: dict[str, Any]) -> dict[str, Any]:
+            assert token == "xfloor-service-token"
             assert params["floor_id"] == "phari"
             return {"events": [{"title": "OAuth Demo"}]}
 
         async def query_memory(self, token: str, **kwargs: Any) -> dict[str, Any]:
+            assert token == "xfloor-service-token"
             assert kwargs["user_id"] == "oauth-dev-user"
             assert kwargs["floor_ids"] == ["phari"]
             return {"answers": ["ok"]}

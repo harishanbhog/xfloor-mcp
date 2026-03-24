@@ -8,7 +8,7 @@ from typing import Any
 from pydantic import BaseModel, Field, field_validator
 
 from .active_floor_state import get_active_floor_state, resolve_floor_reference, set_active_floor_state
-from .request_context import get_active_floor_id, get_auth_token, get_user_id
+from .request_context import get_active_floor_id, get_auth_mode, get_auth_token, get_user_id, get_xfloor_service_token
 from .xfloor_client import XFloorClient
 
 
@@ -97,6 +97,13 @@ class XFloorPostEventToCurrentFloorInput(BaseModel):
 def _extract_auth_token(ctx: Any, token_override: str | None) -> str:
     """Resolve auth token from explicit input, request headers, or context var."""
 
+    auth_mode = get_auth_mode()
+    service_token = get_xfloor_service_token()
+    if auth_mode == "oauth":
+        if service_token and service_token.strip():
+            return service_token.strip()
+        raise ValueError("Missing xFloor service token for downstream API call in oauth mode.")
+
     if token_override and token_override.strip():
         return token_override.strip()
 
@@ -115,7 +122,7 @@ def _extract_auth_token(ctx: Any, token_override: str | None) -> str:
         if header and header.lower().startswith("bearer "):
             return header[7:].strip()
 
-    context_token = get_auth_token()
+    context_token = service_token or get_auth_token()
     if context_token:
         return context_token
 

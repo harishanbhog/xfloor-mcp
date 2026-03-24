@@ -12,6 +12,7 @@ _session_key_var: ContextVar[str | None] = ContextVar("xfloor_session_key", defa
 _auth_mode_var: ContextVar[str | None] = ContextVar("xfloor_auth_mode", default=None)
 _oauth_issuer_var: ContextVar[str | None] = ContextVar("xfloor_oauth_issuer", default=None)
 _oauth_subject_var: ContextVar[str | None] = ContextVar("xfloor_oauth_subject", default=None)
+_xfloor_service_token_var: ContextVar[str | None] = ContextVar("xfloor_service_token", default=None)
 
 
 def set_auth_token(token: str | None) -> None:
@@ -76,3 +77,11 @@ def set_oauth_subject(subject: str | None) -> None:
 
 def get_oauth_subject() -> str | None:
     return _oauth_subject_var.get()
+
+
+def set_xfloor_service_token(token: str | None) -> None:
+    _xfloor_service_token_var.set(token)
+
+
+def get_xfloor_service_token() -> str | None:
+    return _xfloor_service_token_var.get()

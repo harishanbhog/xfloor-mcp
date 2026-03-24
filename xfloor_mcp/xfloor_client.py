@@ -4,11 +4,14 @@ from __future__ import annotations
 
 import base64
 import json
+import logging
 from typing import Any, IO
 
 import httpx
 
-from .request_context import get_app_id, get_auth_token, get_user_id
+from .request_context import get_app_id, get_auth_token, get_user_id, get_xfloor_service_token
+
+logger = logging.getLogger(__name__)
 
 
 class XFloorClient:
@@ -43,7 +46,9 @@ class XFloorClient:
         include_context_params: bool = True,
     ) -> dict[str, Any]:
         url = f"{self._base_url}/{path.lstrip('/')}"
-        resolved_token = auth_token or get_auth_token()
+        resolved_token = auth_token or get_xfloor_service_token() or get_auth_token()
+        if get_xfloor_service_token():
+            logger.info("Using xFloor service token for downstream API call.")
         merged_params = dict(params or {})
         if include_context_params:
             merged_params.update(self._context_params())

@@ -69,7 +69,7 @@ Auth + identity behavior:
 - In HTTP mode, `X-XFloor-User-Id` and `X-XFloor-App-Id` are normally required.
 - `XFLOOR_AUTH_MODE` supports `noauth`, `oauth`, and `auto`. The default is `auto`, which is the least disruptive option here because it preserves the current noauth/dev flow unless an explicit bearer header is present and OAuth stub mode is enabled.
 - For local/ngrok development, you can set `XFLOOR_DEFAULT_AUTH_TOKEN` (or compatibility alias `XFLOOR_DEFAULT_BEARER_TOKEN`), `XFLOOR_DEFAULT_USER_ID`, and `XFLOOR_DEFAULT_APP_ID` in `.env` to use defaults when headers are absent.
-- Token is forwarded as Bearer auth and `user_id` / `app_id` are attached to every xFloor request as query params.
+- Inbound OAuth and outbound xFloor auth are intentionally separate: Auth0 bearer tokens authenticate ChatGPT -> MCP, while MCP -> xFloor uses the configured xFloor service token (`XFLOOR_DEFAULT_AUTH_TOKEN` / `XFLOOR_DEFAULT_BEARER_TOKEN`).
 - In `oauth` mode, the MCP server validates the bearer token against Auth0 issuer metadata / JWKS, extracts `iss + sub`, resolves an xFloor `user_id`, and caches that mapping in memory for reuse.
 
 ### Real Auth0-backed OAuth test mode
@@ -85,7 +85,8 @@ What it does today:
 5. Caches that identity mapping **in memory only** for the life of the server process
 6. Populates the existing request context so the current tools continue working unchanged
 7. Exposes protected resource metadata at `/.well-known/oauth-protected-resource`
-8. Returns `401 Unauthorized` plus `WWW-Authenticate: Bearer ... resource_metadata=...` on unauthenticated or invalid protected requests in `oauth` mode
+8. Exposes public discovery endpoints on the MCP host (`/.well-known/*` and `/mcp/.well-known/*`) so ChatGPT OAuth inspection can complete without a bearer token
+9. Returns `401 Unauthorized` plus `WWW-Authenticate: Bearer ... resource_metadata=...` on unauthenticated or invalid **protected MCP tool requests** in `oauth` mode
 
 What is still stubbed:
 

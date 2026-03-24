@@ -11,6 +11,8 @@ Important:
 from __future__ import annotations
 
 import base64
+import importlib
+import importlib.util
 import json
 import logging
 import time
@@ -49,6 +51,7 @@ class RequestIdentity:
 
     auth_mode: str
     auth_token: str
+    service_token: str
     user_id: str
     app_id: str
     active_floor_id: str | None
@@ -100,15 +103,20 @@ def _decode_unverified_jwt_claims(token: str) -> dict[str, Any]:
 
 
 def _import_jwt_dependencies() -> tuple[Any, Any]:
-    try:
-        import jwt
-        from jwt import PyJWKClient
-    except ImportError as exc:
+    if importlib.util.find_spec("jwt") is None:
         raise OAuthResolutionError(
             "OAuth mode requires PyJWT with JWK support. Install server dependencies for Auth0 verification.",
             status_code=500,
-        ) from exc
-
+        )
+    jwt_module = importlib.import_module("jwt")
+    pyjwk_client_cls = getattr(jwt_module, "PyJWKClient", None)
+    if pyjwk_client_cls is None:
+        raise OAuthResolutionError(
+            "OAuth mode requires PyJWT with JWK support. Install server dependencies for Auth0 verification.",
+            status_code=500,
+        )
+    jwt = jwt_module
+    PyJWKClient = pyjwk_client_cls
     return jwt, PyJWKClient
 
 
@@ -159,6 +167,7 @@ def _verify_auth0_access_token(token: str, settings: Settings) -> dict[str, Any]
         raise OAuthResolutionError("OIDC metadata did not contain jwks_uri.", status_code=502)
 
     try:
+        logger.info("Attempting inbound Auth0 bearer token verification.")
         signing_key = _build_jwks_client(jwks_uri).get_signing_key_from_jwt(token)
         claims = jwt.decode(
             token,
@@ -169,6 +178,7 @@ def _verify_auth0_access_token(token: str, settings: Settings) -> dict[str, Any]
             options={"require": ["exp", "iss", "sub"]},
         )
     except Exception as exc:  # noqa: BLE001 - normalize third-party JWT errors
+        logger.warning("Inbound Auth0 bearer token verification failed: %s", exc)
         raise OAuthResolutionError(f"Invalid bearer token: {exc}", status_code=401) from exc
 
     if not isinstance(claims, dict):
@@ -195,6 +205,35 @@ def build_www_authenticate_header(settings: Settings, resource_metadata_url: str
     if error:
         parts.append(f'error="{error}"')
     return ", ".join(parts)
+
+
+def is_public_discovery_path(path: str) -> bool:
+    normalized = path.rstrip("/") or "/"
+    return normalized in {
+        "/.well-known/oauth-protected-resource",
+        "/.well-known/openid-configuration",
+        "/.well-known/oauth-authorization-server",
+        "/mcp/.well-known/openid-configuration",
+        "/mcp/.well-known/oauth-authorization-server",
+        "/mcp/.well-known/oauth-protected-resource",
+    }
+
+
+def oauth_authorization_server_metadata(settings: Settings) -> dict[str, Any]:
+    issuer = _normalize_issuer(settings)
+    authorization_endpoint = urljoin(issuer, "authorize")
+    token_endpoint = urljoin(issuer, "oauth/token")
+    registration_endpoint = urljoin(issuer, "oidc/register")
+    return {
+        "issuer": issuer,
+        "authorization_endpoint": authorization_endpoint,
+        "token_endpoint": token_endpoint,
+        "jwks_uri": urljoin(issuer, ".well-known/jwks.json"),
+        "response_types_supported": ["code"],
+        "grant_types_supported": ["authorization_code", "refresh_token", "client_credentials"],
+        "token_endpoint_auth_methods_supported": ["client_secret_post", "client_secret_basic", "none"],
+        "registration_endpoint": registration_endpoint,
+    }
 
 
 def verify_access_token(token: str, settings: Settings, *, use_stub: bool = False) -> VerifiedIdentity:
@@ -294,6 +333,7 @@ def _resolve_noauth_identity(headers: Mapping[str, str], settings: Settings) -> 
     return RequestIdentity(
         auth_mode="noauth",
         auth_token=token,
+        service_token=token,
         user_id=user_id,
         app_id=app_id,
         active_floor_id=active_floor_id,
@@ -317,7 +357,14 @@ def _resolve_oauth_identity(headers: Mapping[str, str], settings: Settings) -> R
         )
 
     active_floor_id = headers.get("X-XFloor-Active-Floor-Id")
+    service_token = (settings.xfloor_default_auth_token or "").strip()
+    if not service_token:
+        raise OAuthResolutionError(
+            "OAuth mode requires XFLOOR_DEFAULT_AUTH_TOKEN or XFLOOR_DEFAULT_BEARER_TOKEN for downstream xFloor API calls.",
+            status_code=500,
+        )
     verified_identity = verify_access_token(token, settings, use_stub=False)
+    logger.info("Validated inbound Auth0 token; using xFloor service token for downstream API calls.")
     user_id = _resolve_cached_user_id(verified_identity, settings)
 
     logger.info(
@@ -329,6 +376,7 @@ def _resolve_oauth_identity(headers: Mapping[str, str], settings: Settings) -> R
     return RequestIdentity(
         auth_mode="oauth",
         auth_token=token,
+        service_token=service_token,
         user_id=user_id,
         app_id=app_id,
         active_floor_id=active_floor_id,
@@ -375,6 +423,7 @@ def resolve_request_identity(headers: Mapping[str, str], settings: Settings) -> 
         return RequestIdentity(
             auth_mode="oauth",
             auth_token=token,
+            service_token=token,
             user_id=user_id,
             app_id=app_id,
             active_floor_id=active_floor_id,
