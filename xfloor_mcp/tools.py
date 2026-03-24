@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import inspect
 import json
 import mimetypes
 import os
@@ -373,11 +374,15 @@ def register_tools(mcp: Any, client: XFloorClient) -> None:
             "events": events,
         }
 
-    @mcp.tool(
-        name="xfloor_post_event_to_current_floor",
-        description="Use this when the user explicitly wants to create/post an event in the currently active xFloor. This tool uses the active floor selected by xfloor_set_active_floor, with the request header acting only as an optional override/debug path. Queue acceptance is considered success for this tool.",
-        _meta={"openai/fileParams": ["attachment", "attachments"]},
-    )
+    _post_event_tool_kwargs: dict[str, Any] = {
+        "name": "xfloor_post_event_to_current_floor",
+        "description": "Use this when the user explicitly wants to create/post an event in the currently active xFloor. This tool uses the active floor selected by xfloor_set_active_floor, with the request header acting only as an optional override/debug path. Queue acceptance is considered success for this tool.",
+    }
+    tool_signature = inspect.signature(mcp.tool)
+    if "_meta" in tool_signature.parameters:
+        _post_event_tool_kwargs["_meta"] = {"openai/fileParams": ["attachment", "attachments"]}
+
+    @mcp.tool(**_post_event_tool_kwargs)
     async def xfloor_post_event_to_current_floor(input: XFloorPostEventToCurrentFloorInput, ctx: Any = None) -> dict[str, Any]:
         token = _extract_auth_token(ctx, None)
         floor = _resolve_active_floor_id()
