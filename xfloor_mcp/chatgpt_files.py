@@ -67,7 +67,6 @@ def _coerce_attachment_items(
 def _extract_local_path(item: dict[str, Any] | str) -> str:
     if isinstance(item, str):
         return item.strip()
-    # Defensive dev-mode fallback keys.
     for key in ("file_path", "path", "local_path"):
         candidate = str(item.get(key) or "").strip()
         if candidate:
@@ -80,12 +79,15 @@ async def download_chatgpt_attachments(
     attachments: list[dict[str, Any] | str] | None,
     *,
     timeout_s: float = 20.0,
+    allow_local_path_fallback: bool = False,
 ) -> tuple[list[dict[str, str]] | None, list[str], list[str]]:
     """Download/read ChatGPT attachment params and convert to xFloor file objects.
 
-    Supported per-item forms:
-    - Official MCP file param object: ``{"download_url": ..., "file_id": ...}``
-    - Dev fallback local path string: ``"/mnt/data/example.jpg"``
+    Official MCP attachment contract:
+    - top-level file params containing ``download_url`` and optional ``file_id``
+
+    Dev-only fallback (disabled by default):
+    - local path references (for example ``/mnt/data/example.jpg``)
 
     Returns: (files_payload, file_ids, filenames)
     """
@@ -97,6 +99,8 @@ async def download_chatgpt_attachments(
     converted: list[dict[str, str]] = []
     file_ids: list[str] = []
     filenames: list[str] = []
+
+    logger.info("Attachment bridge: official_params_received=%s", True)
 
     async with httpx.AsyncClient(timeout=timeout_s) as client:
         for idx, item in enumerate(items, start=1):
@@ -120,14 +124,19 @@ async def download_chatgpt_attachments(
                 mime_type = _mime_from_headers_or_filename(response.headers, filename)
                 raw_bytes = response.content
             else:
+                if not allow_local_path_fallback:
+                    raise AttachmentBridgeError(
+                        "Attachment requires official ChatGPT file params. Expected top-level attachment fields with download_url/file_id."
+                    )
+
                 local_path = _extract_local_path(item)
                 if not local_path:
                     raise AttachmentBridgeError(
-                        "Attachment bridge could not use provided file reference. Expected download_url or readable local path."
+                        "Attachment bridge dev fallback is enabled, but no readable local path was provided."
                     )
                 if not os.path.exists(local_path) or not os.path.isfile(local_path):
                     raise AttachmentBridgeError(
-                        "Attachment bridge could not use provided file reference. Local path is not readable in this MCP environment."
+                        "Attachment bridge dev fallback path is not readable in this MCP environment."
                     )
 
                 logger.info("Attachment bridge source=local_path filename=%s", os.path.basename(local_path))
@@ -136,7 +145,7 @@ async def download_chatgpt_attachments(
                         raw_bytes = f.read()
                 except Exception as exc:  # noqa: BLE001
                     raise AttachmentBridgeError(
-                        "Attachment bridge could not read provided local path in this MCP environment."
+                        "Attachment bridge dev fallback could not read provided local path."
                     ) from exc
                 filename = os.path.basename(local_path) or f"attachment-{idx}"
                 mime_type = (mimetypes.guess_type(filename)[0] or "application/octet-stream").lower()

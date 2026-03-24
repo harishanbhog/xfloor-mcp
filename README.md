@@ -274,11 +274,13 @@ This repo now exposes an additive **v1 ChatGPT-facing MCP surface** on top of th
 4. `xfloor_post_event_to_current_floor`
    - Use this when the user explicitly wants to create/post an event in the currently active xFloor.
    - Inputs: optional `title` (falls back to `description` if omitted), `description`, optional `block_id`, plus optional event fields like `location`, `start_date`, `start_time`, `end_date`, and `end_time`.
-   - ChatGPT file attachments are supported via top-level file params:
+   - Official ChatGPT attachment path (recommended): top-level file params only
      - `attachment` (single `{download_url, file_id}`)
      - `attachments` (multiple `[{download_url, file_id}, ...]`)
-   - Primary path: MCP downloads official file params via `download_url`, converts them to `filename/content_base64/mime_type`, and forwards to xFloor multipart upload.
-   - Dev fallback only: if a local path-style attachment reference is provided (for example `/mnt/data/file.jpg`) and readable in the MCP runtime, MCP can read and convert it; this is not the preferred integration contract.
+   - MCP downloads official file params via `download_url`, converts to `filename/content_base64/mime_type`, and forwards to xFloor multipart upload.
+   - Do **not** invent local paths, base64 payloads, `image_url`, or `image_path` substitutes in ChatGPT-facing calls.
+   - Internal/direct callers can still use the `files` field (`filename/content_base64/mime_type` or `file_path`) when intentionally bypassing ChatGPT file params.
+   - Dev-only fallback: local-path style attachment refs are accepted only when `XFLOOR_CHATGPT_ATTACHMENT_LOCAL_PATH_FALLBACK=true`; default is `false`.
 
 ### Active-floor precedence rules
 

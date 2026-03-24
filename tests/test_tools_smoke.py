@@ -427,7 +427,7 @@ class TestToolsSmoke:
         set_app_id("ctx-app")
         set_active_floor_id(None)
 
-        async def _fake_download(single: dict[str, Any] | None, many: list[dict[str, Any]] | None, timeout_s: float = 20.0):
+        async def _fake_download(single: dict[str, Any] | str | None, many: list[dict[str, Any] | str] | None, timeout_s: float = 20.0, allow_local_path_fallback: bool = False):
             assert single is not None
             assert single["file_id"] == "file_123"
             return (
@@ -475,7 +475,7 @@ class TestToolsSmoke:
         set_app_id("ctx-app")
         set_active_floor_id(None)
 
-        async def _fake_download(single: dict[str, Any] | None, many: list[dict[str, Any]] | None, timeout_s: float = 20.0):
+        async def _fake_download(single: dict[str, Any] | str | None, many: list[dict[str, Any] | str] | None, timeout_s: float = 20.0, allow_local_path_fallback: bool = False):
             assert single is not None
             assert many is not None
             return (
@@ -517,7 +517,7 @@ class TestToolsSmoke:
         set_app_id("ctx-app")
         set_active_floor_id(None)
 
-        async def _fake_download(single: dict[str, Any] | str | None, many: list[dict[str, Any] | str] | None, timeout_s: float = 20.0):
+        async def _fake_download(single: dict[str, Any] | str | None, many: list[dict[str, Any] | str] | None, timeout_s: float = 20.0, allow_local_path_fallback: bool = False):
             from xfloor_mcp.chatgpt_files import AttachmentBridgeError
 
             raise AttachmentBridgeError("Could not fetch ChatGPT attachment for file_id 'file_bad'.")
@@ -547,12 +547,13 @@ class TestToolsSmoke:
 
 
     @pytest.mark.asyncio
-    async def test_post_event_to_current_floor_accepts_local_path_attachment_fallback(self, tmp_path: Any) -> None:
+    async def test_post_event_to_current_floor_accepts_local_path_attachment_fallback(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Any) -> None:
         mcp = self._FakeMCP()
         set_auth_token("ctx-token")
         set_user_id("ctx-user")
         set_app_id("ctx-app")
         set_active_floor_id(None)
+        monkeypatch.setenv("XFLOOR_CHATGPT_ATTACHMENT_LOCAL_PATH_FALLBACK", "true")
 
         file_path = tmp_path / "mnt" / "data" / "luminous.jpg"
         file_path.parent.mkdir(parents=True, exist_ok=True)
@@ -580,6 +581,64 @@ class TestToolsSmoke:
         )
         assert result["posted"] is True
         assert result["attachments_received"] == 1
+
+    @pytest.mark.asyncio
+    async def test_post_event_to_current_floor_rejects_attachment_string_when_local_fallback_disabled(self) -> None:
+        mcp = self._FakeMCP()
+        set_auth_token("ctx-token")
+        set_user_id("ctx-user")
+        set_app_id("ctx-app")
+        set_active_floor_id(None)
+
+        class _FakeClient:
+            async def create_event(self, token: str, **kwargs: Any) -> dict[str, Any]:
+                raise AssertionError("create_event should not be called")
+
+        register_tools(mcp=mcp, client=_FakeClient())
+        await mcp.registry["xfloor_set_active_floor"](XFloorSetActiveFloorInput(floor_ref="@phari"), None)
+
+        result = await mcp.registry["xfloor_post_event_to_current_floor"](
+            XFloorPostEventToCurrentFloorInput(
+                title="Bad",
+                description="bad",
+                attachment="/mnt/data/luminous.jpg",
+            ),
+            None,
+        )
+        assert result["accepted"] is False
+        assert result["attachment_bridge_failed"] is True
+        assert "official chatgpt file params" in result["message"].lower()
+
+    @pytest.mark.asyncio
+    async def test_post_event_to_current_floor_does_not_guess_base64_or_image_url_attachment_shapes(self) -> None:
+        mcp = self._FakeMCP()
+        set_auth_token("ctx-token")
+        set_user_id("ctx-user")
+        set_app_id("ctx-app")
+        set_active_floor_id(None)
+
+        class _FakeClient:
+            async def create_event(self, token: str, **kwargs: Any) -> dict[str, Any]:
+                raise AssertionError("create_event should not be called")
+
+        register_tools(mcp=mcp, client=_FakeClient())
+        await mcp.registry["xfloor_set_active_floor"](XFloorSetActiveFloorInput(floor_ref="@phari"), None)
+
+        for invalid in [
+            {"file_id": "file_x", "content_base64": "aGVsbG8="},
+            {"image_url": "https://example.com/image.jpg"},
+            {"image_path": "/mnt/data/luminous.jpg"},
+        ]:
+            result = await mcp.registry["xfloor_post_event_to_current_floor"](
+                XFloorPostEventToCurrentFloorInput(
+                    title="Bad",
+                    description="bad",
+                    attachment=invalid,
+                ),
+                None,
+            )
+            assert result["accepted"] is False
+            assert result["attachment_bridge_failed"] is True
 
     @pytest.mark.asyncio
     async def test_post_event_to_current_floor_rejects_invalid_attachment_mix(self) -> None:

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import inspect
 import json
+import logging
 import mimetypes
 import os
 from typing import Any
@@ -14,6 +15,8 @@ from .active_floor_state import get_active_floor_state, resolve_floor_reference,
 from .chatgpt_files import AttachmentBridgeError, download_chatgpt_attachments
 from .request_context import get_active_floor_id, get_auth_mode, get_auth_token, get_user_id, get_xfloor_service_token
 from .xfloor_client import XFloorClient
+
+logger = logging.getLogger(__name__)
 
 
 class XFloorQueryMemoryInput(BaseModel):
@@ -111,11 +114,11 @@ class XFloorPostEventToCurrentFloorInput(BaseModel):
     )
     attachment: XFloorChatGPTAttachmentParam | None = Field(
         default=None,
-        description="Optional single ChatGPT file param (top-level).",
+        description="Optional single official ChatGPT file param object ({download_url, file_id}).",
     )
     attachments: list[XFloorChatGPTAttachmentParam] | None = Field(
         default=None,
-        description="Optional multiple ChatGPT file params (top-level).",
+        description="Optional multiple official ChatGPT file param objects (top-level).",
     )
 
 
@@ -240,6 +243,11 @@ def _validate_post_event_attachments(files: list[XFloorFileInput] | None) -> lis
         raise ValueError("You can attach exactly 1 PDF.")
 
     return [file.model_dump() for file in files]
+
+
+def _local_path_fallback_enabled() -> bool:
+    value = os.getenv("XFLOOR_CHATGPT_ATTACHMENT_LOCAL_PATH_FALLBACK", "false").strip().lower()
+    return value in {"1", "true", "yes", "on"}
 
 
 def register_tools(mcp: Any, client: XFloorClient) -> None:
@@ -379,7 +387,7 @@ def register_tools(mcp: Any, client: XFloorClient) -> None:
 
     _post_event_tool_kwargs: dict[str, Any] = {
         "name": "xfloor_post_event_to_current_floor",
-        "description": "Use this when the user explicitly wants to create/post an event in the currently active xFloor. This tool uses the active floor selected by xfloor_set_active_floor, with the request header acting only as an optional override/debug path. Queue acceptance is considered success for this tool.",
+        "description": "Use this when the user explicitly wants to create/post an event in the currently active xFloor. If the user attached files in chat, pass them only through top-level file params `attachment`/`attachments` with official ChatGPT file objects (`download_url`, `file_id`). Do not invent local file paths, base64 payloads, image_url/image_path, or other substitutes. If official file params are unavailable, do not guess; the tool returns a clear attachment bridge failure. Queue acceptance is considered success for this tool.",
     }
     tool_signature = inspect.signature(mcp.tool)
     if "_meta" in tool_signature.parameters:
@@ -422,12 +430,20 @@ def register_tools(mcp: Any, client: XFloorClient) -> None:
             return item.model_dump()
 
         attachment_input_present = input.attachment is not None or bool(input.attachments)
+        allow_local_fallback = _local_path_fallback_enabled()
+        logger.info(
+            "Attachment bridge request: attachment_input_present=%s local_path_fallback_enabled=%s",
+            attachment_input_present,
+            allow_local_fallback,
+        )
         try:
             chatgpt_files_payload, attachment_file_ids, attachment_filenames = await download_chatgpt_attachments(
                 _to_attachment_payload(input.attachment) if input.attachment is not None else None,
                 [_to_attachment_payload(item) for item in input.attachments] if input.attachments else None,
+                allow_local_path_fallback=allow_local_fallback,
             )
         except AttachmentBridgeError as exc:
+            logger.info("Attachment bridge failure type=%s", exc.__class__.__name__)
             if attachment_input_present:
                 return {
                     "floor_id": floor["floor_id"],
@@ -439,7 +455,7 @@ def register_tools(mcp: Any, client: XFloorClient) -> None:
                     "verification_required": False,
                     "attachment_bridge_failed": True,
                     "attachments_received": 0,
-                    "message": "Attachment was provided, but the MCP file bridge could not convert it for xFloor upload.",
+                    "message": "Attachment was provided, but official ChatGPT file params were missing or unusable for xFloor upload.",
                     "error": str(exc),
                 }
             raise
