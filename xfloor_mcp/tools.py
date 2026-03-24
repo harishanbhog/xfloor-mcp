@@ -10,6 +10,7 @@ from typing import Any
 from pydantic import BaseModel, Field, field_validator
 
 from .active_floor_state import get_active_floor_state, resolve_floor_reference, set_active_floor_state
+from .chatgpt_files import download_chatgpt_attachments
 from .request_context import get_active_floor_id, get_auth_mode, get_auth_token, get_user_id, get_xfloor_service_token
 from .xfloor_client import XFloorClient
 
@@ -30,6 +31,11 @@ class XFloorFileInput(BaseModel):
     content_base64: str | None = Field(default=None, description="Base64 encoded file payload")
     file_path: str | None = Field(default=None, description="Optional local file path for environments that can hand off files by path")
     mime_type: str | None = "application/octet-stream"
+
+
+class XFloorChatGPTAttachmentInput(BaseModel):
+    download_url: str = Field(description="ChatGPT attachment download URL")
+    file_id: str = Field(description="ChatGPT file identifier")
 
 
 class XFloorCreateEventInput(BaseModel):
@@ -98,6 +104,14 @@ class XFloorPostEventToCurrentFloorInput(BaseModel):
     files: list[XFloorFileInput] | None = Field(
         default=None,
         description="Optional media attachments: up to 4 PNG/JPEG images OR exactly 1 video OR exactly 1 PDF.",
+    )
+    attachment: XFloorChatGPTAttachmentInput | None = Field(
+        default=None,
+        description="Optional single ChatGPT file param (top-level).",
+    )
+    attachments: list[XFloorChatGPTAttachmentInput] | None = Field(
+        default=None,
+        description="Optional multiple ChatGPT file params (top-level).",
     )
 
 
@@ -362,6 +376,7 @@ def register_tools(mcp: Any, client: XFloorClient) -> None:
     @mcp.tool(
         name="xfloor_post_event_to_current_floor",
         description="Use this when the user explicitly wants to create/post an event in the currently active xFloor. This tool uses the active floor selected by xfloor_set_active_floor, with the request header acting only as an optional override/debug path. Queue acceptance is considered success for this tool.",
+        _meta={"openai/fileParams": ["attachment", "attachments"]},
     )
     async def xfloor_post_event_to_current_floor(input: XFloorPostEventToCurrentFloorInput, ctx: Any = None) -> dict[str, Any]:
         token = _extract_auth_token(ctx, None)
@@ -393,7 +408,17 @@ def register_tools(mcp: Any, client: XFloorClient) -> None:
             payload["end_time"] = input.end_time
 
         input_info = json.dumps(payload)
-        files_payload = _validate_post_event_attachments(input.files)
+        chatgpt_files_payload, attachment_file_ids, attachment_filenames = await download_chatgpt_attachments(
+            input.attachment.model_dump() if input.attachment else None,
+            [item.model_dump() for item in input.attachments] if input.attachments else None,
+        )
+        combined_files: list[XFloorFileInput] | None = None
+        if input.files or chatgpt_files_payload:
+            base_files = input.files or []
+            converted_files = [XFloorFileInput(**item) for item in (chatgpt_files_payload or [])]
+            combined_files = [*base_files, *converted_files]
+
+        files_payload = _validate_post_event_attachments(combined_files)
         result = await client.create_event(token, input_info=input_info, files=files_payload)
         compact_result = _compact(result)
         result_text = json.dumps(compact_result).lower()
@@ -410,6 +435,9 @@ def register_tools(mcp: Any, client: XFloorClient) -> None:
             "verification_required": False,
             "posted": True,
             "message": message,
+            "attachments_received": len(files_payload or []),
+            "attachment_file_ids": attachment_file_ids,
+            "attachment_filenames": attachment_filenames,
             "event": {
                 "title": normalized_title,
                 "description": input.description,

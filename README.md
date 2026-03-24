@@ -274,6 +274,10 @@ This repo now exposes an additive **v1 ChatGPT-facing MCP surface** on top of th
 4. `xfloor_post_event_to_current_floor`
    - Use this when the user explicitly wants to create/post an event in the currently active xFloor.
    - Inputs: optional `title` (falls back to `description` if omitted), `description`, optional `block_id`, plus optional event fields like `location`, `start_date`, `start_time`, `end_date`, and `end_time`.
+   - ChatGPT file attachments are supported via top-level file params:
+     - `attachment` (single `{download_url, file_id}`)
+     - `attachments` (multiple `[{download_url, file_id}, ...]`)
+   - MCP downloads those files and forwards them to xFloor using the existing multipart upload path.
 
 ### Active-floor precedence rules
 
