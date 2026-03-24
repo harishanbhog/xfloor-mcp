@@ -10,10 +10,14 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from mcp.server.fastmcp import FastMCP
 
+from .auth import OAuthResolutionError, resolve_request_identity
 from .request_context import (
+    set_auth_mode,
     set_active_floor_id,
     set_app_id,
     set_auth_token,
+    set_oauth_issuer,
+    set_oauth_subject,
     set_session_key,
     set_user_id,
 )
@@ -36,16 +40,6 @@ def _build_mcp_app(mcp: FastMCP) -> Any:
         except TypeError:
             return mcp.http_app()
     raise RuntimeError("Installed mcp package does not expose Streamable HTTP app builders")
-
-
-def _extract_bearer(authorization: str | None) -> str | None:
-    if not authorization:
-        return None
-    value = authorization.strip()
-    if not value.lower().startswith("bearer "):
-        return None
-    token = value[7:].strip()
-    return token or None
 
 
 @asynccontextmanager
@@ -98,47 +92,40 @@ def create_http_app(settings: Settings) -> FastAPI:
         if not is_mcp_path:
             return await call_next(request)
 
-        token = _extract_bearer(request.headers.get("Authorization")) or settings.xfloor_default_auth_token
-        user_id = request.headers.get("X-XFloor-User-Id") or settings.xfloor_default_user_id
-        app_id = request.headers.get("X-XFloor-App-Id") or settings.xfloor_default_app_id
-        active_floor_id = request.headers.get("X-XFloor-Active-Floor-Id")
-        session_key = (
-            request.headers.get("Mcp-Session-Id")
-            or request.headers.get("X-Mcp-Session-Id")
-            or (f"{user_id}:{app_id}" if user_id and app_id else None)
-        )
-
-        missing: list[str] = []
-        if not token:
-            missing.append("Authorization: Bearer <token>")
-        if not user_id:
-            missing.append("X-XFloor-User-Id")
-        if not app_id:
-            missing.append("X-XFloor-App-Id")
-
-        if missing:
+        try:
+            identity = resolve_request_identity(request.headers, settings)
+        except OAuthResolutionError as exc:
+            content: dict[str, Any] = {"error": str(exc), "auth_mode": settings.xfloor_auth_mode}
+            if exc.missing:
+                content["missing"] = exc.missing
+                content["hint"] = (
+                    "Set required headers or configure XFLOOR_DEFAULT_AUTH_TOKEN / XFLOOR_DEFAULT_BEARER_TOKEN / "
+                    "XFLOOR_DEFAULT_USER_ID / XFLOOR_DEFAULT_APP_ID for local development."
+                )
             return JSONResponse(
-                status_code=400,
-                content={
-                    "error": "Missing required xFloor headers",
-                    "missing": missing,
-                    "hint": "Set required headers or configure XFLOOR_DEFAULT_AUTH_TOKEN / XFLOOR_DEFAULT_USER_ID / XFLOOR_DEFAULT_APP_ID for local development.",
-                },
+                status_code=exc.status_code,
+                content=content,
             )
 
-        set_auth_token(token)
-        set_user_id(user_id)
-        set_app_id(app_id)
-        set_active_floor_id(active_floor_id)
-        set_session_key(session_key)
+        set_auth_mode(identity.auth_mode)
+        set_auth_token(identity.auth_token)
+        set_user_id(identity.user_id)
+        set_app_id(identity.app_id)
+        set_active_floor_id(identity.active_floor_id)
+        set_session_key(identity.session_key)
+        set_oauth_issuer(identity.verified_identity.issuer if identity.verified_identity else None)
+        set_oauth_subject(identity.verified_identity.subject if identity.verified_identity else None)
         try:
             return await call_next(request)
         finally:
+            set_auth_mode(None)
             set_auth_token(None)
             set_user_id(None)
             set_app_id(None)
             set_active_floor_id(None)
             set_session_key(None)
+            set_oauth_issuer(None)
+            set_oauth_subject(None)
 
     @app.get("/healthz")
     async def healthz() -> dict[str, bool]:

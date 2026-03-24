@@ -49,15 +49,86 @@ CORS_ALLOW_HEADERS=*
 XFLOOR_BASE_URL=https://appfloor.in
 XFLOOR_TIMEOUT_SECONDS=30
 XFLOOR_DEFAULT_AUTH_TOKEN=local-dev-bearer-token
+# compatibility alias also supported:
+# XFLOOR_DEFAULT_BEARER_TOKEN=local-dev-bearer-token
 XFLOOR_DEFAULT_USER_ID=local-dev-user
 XFLOOR_DEFAULT_APP_ID=local-dev-app
+XFLOOR_AUTH_MODE=auto
+XFLOOR_OAUTH_STUB_ENABLED=false
+XFLOOR_OAUTH_STUB_ISS=https://example.auth0.com/
+XFLOOR_OAUTH_STUB_SUB=auth0|demo-user
+XFLOOR_OAUTH_STUB_USER_ID=oauth-dev-user
 ```
 
 Auth + identity behavior:
 - MCP requests normally include `Authorization: Bearer <token>`.
 - In HTTP mode, `X-XFloor-User-Id` and `X-XFloor-App-Id` are normally required.
-- For local/ngrok development, you can set `XFLOOR_DEFAULT_AUTH_TOKEN`, `XFLOOR_DEFAULT_USER_ID`, and `XFLOOR_DEFAULT_APP_ID` in `.env` to use defaults when headers are absent.
+- `XFLOOR_AUTH_MODE` supports `noauth`, `oauth`, and `auto`. The default is `auto`, which is the least disruptive option here because it preserves the current noauth/dev flow unless an explicit bearer header is present and OAuth stub mode is enabled.
+- For local/ngrok development, you can set `XFLOOR_DEFAULT_AUTH_TOKEN` (or compatibility alias `XFLOOR_DEFAULT_BEARER_TOKEN`), `XFLOOR_DEFAULT_USER_ID`, and `XFLOOR_DEFAULT_APP_ID` in `.env` to use defaults when headers are absent.
 - Token is forwarded as Bearer auth and `user_id` / `app_id` are attached to every xFloor request as query params.
+- In OAuth-ready modes, the MCP server validates the bearer token through a dev/stub verifier, extracts `iss + sub`, resolves an xFloor `user_id`, and caches that mapping in memory for reuse.
+
+### OAuth-ready dev stub mode
+
+This repo now includes an **OAuth-ready MCP-side request identity layer**. It is intentionally **not a full production OAuth/Auth0 integration yet**.
+
+What it does today:
+
+1. Accepts `Authorization: Bearer <token>` on each MCP request
+2. In OAuth-capable modes, validates the token through a **stub/dev verifier**
+3. Extracts verified `iss + sub`
+4. Resolves `iss + sub -> xfloor user_id` using a **stub `verify_oauth_user(...)`**
+5. Caches that identity mapping **in memory only** for the life of the server process
+6. Populates the existing request context so the current tools continue working unchanged
+
+What is still stubbed:
+
+- Access-token verification is currently a **dev stub** only
+- JWT payloads can be decoded **without signature verification only when `XFLOOR_OAUTH_STUB_ENABLED=true`**
+- `verify_oauth_user(...)` currently returns `XFLOOR_OAUTH_STUB_USER_ID`
+- There is **no real JWKS/Auth0 validation** or backend user-linking API call yet
+
+What would be replaced later:
+
+- The stub `verify_access_token(...)` implementation in `xfloor_mcp/auth/`
+- The stub `verify_oauth_user(...)` lookup in `xfloor_mcp/auth/`
+
+Mode behavior:
+
+- `XFLOOR_AUTH_MODE=noauth`
+  - Preserves the current working header/env fallback behavior exactly
+  - Uses `Authorization` or `XFLOOR_DEFAULT_AUTH_TOKEN` / `XFLOOR_DEFAULT_BEARER_TOKEN`
+  - Uses `X-XFloor-User-Id` or `XFLOOR_DEFAULT_USER_ID`
+  - Uses `X-XFloor-App-Id` or `XFLOOR_DEFAULT_APP_ID`
+
+- `XFLOOR_AUTH_MODE=oauth`
+  - Requires a bearer token
+  - Verifies it via the stub verifier
+  - Extracts `iss + sub`
+  - Resolves and caches `user_id`
+  - Does **not** require `X-XFloor-User-Id`
+  - Still uses `X-XFloor-App-Id` or `XFLOOR_DEFAULT_APP_ID` for app context
+
+- `XFLOOR_AUTH_MODE=auto`
+  - If an `Authorization` bearer header is present **and** `XFLOOR_OAUTH_STUB_ENABLED=true`, the server tries the OAuth-ready path first
+  - Otherwise it falls back to the current noauth/dev flow
+
+Example OAuth-stub env:
+
+```env
+XFLOOR_AUTH_MODE=auto
+XFLOOR_OAUTH_STUB_ENABLED=true
+XFLOOR_OAUTH_STUB_ISS=https://example.auth0.com/
+XFLOOR_OAUTH_STUB_SUB=auth0|demo-user
+XFLOOR_OAUTH_STUB_USER_ID=oauth-dev-user
+XFLOOR_DEFAULT_APP_ID=local-dev-app
+```
+
+Notes:
+
+- Active-floor session behavior is unchanged.
+- The identity cache is in-memory only and resets on process restart.
+- This setup is meant to make a later real Auth0/JWKS integration a drop-in replacement rather than a server-wide refactor.
 
 ---
 
@@ -160,8 +231,8 @@ This repo now exposes an additive **v1 ChatGPT-facing MCP surface** on top of th
 
 1. Connect with the normal required headers:
    - `Authorization: Bearer <your-token>`
-   - `X-XFloor-User-Id: <your-user-id>`
    - `X-XFloor-App-Id: <your-app-id>`
+   - If using `XFLOOR_AUTH_MODE=noauth`, also send `X-XFloor-User-Id: <your-user-id>`
 2. Call `xfloor_set_active_floor` once, for example with `@phari`.
 3. Then use the current-floor tools without passing a floor ID or the active-floor header.
 
@@ -181,7 +252,7 @@ This repo now exposes an additive **v1 ChatGPT-facing MCP surface** on top of th
 
 4. `xfloor_post_event_to_current_floor`
    - Use this when the user explicitly wants to create/post an event in the currently active xFloor.
-   - Inputs: `title`, `description`, plus optional event fields like `location`, `start_date`, `start_time`, `end_date`, and `end_time`.
+   - Inputs: optional `title` (falls back to `description` if omitted), `description`, optional `block_id`, plus optional event fields like `location`, `start_date`, `start_time`, `end_date`, and `end_time`.
 
 ### Active-floor precedence rules
 
@@ -217,8 +288,13 @@ Use the **old tools** when you need low-level control such as explicit `floor_id
 Connect with headers:
 
 - `Authorization: Bearer <your-token>`
-- `X-XFloor-User-Id: <your-user-id>`
 - `X-XFloor-App-Id: <your-app-id>`
+
+If you are using `XFLOOR_AUTH_MODE=noauth`, also send:
+
+- `X-XFloor-User-Id: <your-user-id>`
+
+If you are using `XFLOOR_AUTH_MODE=oauth` (or `auto` + OAuth stub path), MCP resolves `user_id` from verified `iss + sub`, so `X-XFloor-User-Id` is not required.
 
 Do **not** send `X-XFloor-Active-Floor-Id` for the normal ChatGPT/Inspector flow.
 
@@ -247,9 +323,12 @@ In Inspector:
 - Transport: **Streamable HTTP**
 - URL: `https://your-real-domain.com/mcp`
 - Header: `Authorization: Bearer <your-token>`
-- Header: `X-XFloor-User-Id: <your-user-id>`
 - Header: `X-XFloor-App-Id: <your-app-id>`
 - Optional debug override header: `X-XFloor-Active-Floor-Id: <active-floor-id>`
+
+If you are in `noauth` mode, also include:
+
+- Header: `X-XFloor-User-Id: <your-user-id>`
 
 Then run tools:
 

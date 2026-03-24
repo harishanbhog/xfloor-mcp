@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import base64
 from types import SimpleNamespace
 from typing import Any, Callable, get_type_hints
 
@@ -16,7 +17,15 @@ HAS_FASTAPI = importlib.util.find_spec("fastapi") is not None
 HAS_DEPS = HAS_PYDANTIC and HAS_HTTPX
 
 if HAS_DEPS:
+    from xfloor_mcp.auth import clear_identity_cache
     from xfloor_mcp.request_context import (
+        get_auth_mode,
+        get_app_id,
+        get_auth_token,
+        get_oauth_issuer,
+        get_oauth_subject,
+        get_session_key,
+        get_user_id,
         set_active_floor_id,
         set_app_id,
         set_auth_token,
@@ -69,6 +78,7 @@ class TestToolsSmoke:
         clear_all_active_floor_state()
         set_session_key("test-session")
         set_active_floor_id(None)
+        clear_identity_cache()
 
     @pytest.mark.asyncio
     async def test_tools_registered_with_expected_inputs(self) -> None:
@@ -428,3 +438,360 @@ def test_http_middleware_uses_env_defaults_when_headers_are_missing() -> None:
     client = TestClient(app)
     response = client.post("/mcp", json={"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}})
     assert response.status_code != 400
+
+
+@pytest.mark.skipif(not (HAS_DEPS and HAS_FASTAPI), reason="requires fastapi + runtime deps")
+def test_http_middleware_noauth_headers_continue_to_work(monkeypatch: pytest.MonkeyPatch) -> None:
+    from fastapi import FastAPI
+    from fastapi.responses import JSONResponse
+    from fastapi.testclient import TestClient
+
+    from xfloor_mcp.server_http import create_http_app
+    from xfloor_mcp.settings import Settings
+
+    clear_identity_cache()
+
+    async def debug_context(_: Any) -> JSONResponse:
+        return JSONResponse(
+            {
+                "auth_mode": get_auth_mode(),
+                "auth_token": get_auth_token(),
+                "user_id": get_user_id(),
+                "app_id": get_app_id(),
+                "session_key": get_session_key(),
+                "oauth_issuer": get_oauth_issuer(),
+                "oauth_subject": get_oauth_subject(),
+            }
+        )
+
+    debug_app = FastAPI()
+    debug_app.add_api_route("/{path:path}", debug_context, methods=["GET", "POST"])
+    monkeypatch.setattr("xfloor_mcp.server_http._build_mcp_app", lambda mcp: debug_app)
+
+    app = create_http_app(
+        Settings(
+            XFLOOR_BASE_URL="https://appfloor.in",
+            XFLOOR_AUTH_MODE="noauth",
+        )
+    )
+    client = TestClient(app)
+    response = client.post(
+        "/mcp",
+        headers={
+            "Authorization": "Bearer noauth-token",
+            "X-XFloor-User-Id": "header-user",
+            "X-XFloor-App-Id": "header-app",
+            "Mcp-Session-Id": "session-1",
+        },
+        json={"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}},
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["auth_mode"] == "noauth"
+    assert payload["auth_token"] == "noauth-token"
+    assert payload["user_id"] == "header-user"
+    assert payload["app_id"] == "header-app"
+    assert payload["session_key"] == "session-1"
+    assert payload["oauth_issuer"] is None
+    assert payload["oauth_subject"] is None
+
+
+def _encode_stub_jwt(claims: dict[str, Any]) -> str:
+    header = base64.urlsafe_b64encode(json.dumps({"alg": "none", "typ": "JWT"}).encode()).decode().rstrip("=")
+    payload = base64.urlsafe_b64encode(json.dumps(claims).encode()).decode().rstrip("=")
+    return f"{header}.{payload}.signature"
+
+
+@pytest.mark.skipif(not (HAS_DEPS and HAS_FASTAPI), reason="requires fastapi + runtime deps")
+def test_http_middleware_oauth_mode_resolves_user_and_sets_context(monkeypatch: pytest.MonkeyPatch) -> None:
+    from fastapi import FastAPI
+    from fastapi.responses import JSONResponse
+    from fastapi.testclient import TestClient
+
+    from xfloor_mcp.server_http import create_http_app
+    from xfloor_mcp.settings import Settings
+
+    clear_identity_cache()
+
+    async def debug_context(_: Any) -> JSONResponse:
+        return JSONResponse(
+            {
+                "auth_mode": get_auth_mode(),
+                "user_id": get_user_id(),
+                "app_id": get_app_id(),
+                "oauth_issuer": get_oauth_issuer(),
+                "oauth_subject": get_oauth_subject(),
+                "session_key": get_session_key(),
+            }
+        )
+
+    debug_app = FastAPI()
+    debug_app.add_api_route("/{path:path}", debug_context, methods=["GET", "POST"])
+    monkeypatch.setattr("xfloor_mcp.server_http._build_mcp_app", lambda mcp: debug_app)
+
+    app = create_http_app(
+        Settings(
+            XFLOOR_BASE_URL="https://appfloor.in",
+            XFLOOR_AUTH_MODE="oauth",
+            XFLOOR_OAUTH_STUB_ENABLED=True,
+            XFLOOR_OAUTH_STUB_USER_ID="oauth-dev-user",
+            XFLOOR_DEFAULT_APP_ID="fallback-app",
+        )
+    )
+    client = TestClient(app)
+    token = _encode_stub_jwt({"iss": "https://example.auth0.com/", "sub": "auth0|demo-user"})
+    response = client.post(
+        "/mcp",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}},
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["auth_mode"] == "oauth"
+    assert payload["user_id"] == "oauth-dev-user"
+    assert payload["app_id"] == "fallback-app"
+    assert payload["oauth_issuer"] == "https://example.auth0.com/"
+    assert payload["oauth_subject"] == "auth0|demo-user"
+    assert payload["session_key"] == "oauth-dev-user:fallback-app"
+
+
+@pytest.mark.skipif(not (HAS_DEPS and HAS_FASTAPI), reason="requires fastapi + runtime deps")
+def test_http_middleware_oauth_mode_uses_identity_cache(monkeypatch: pytest.MonkeyPatch) -> None:
+    from fastapi import FastAPI
+    from fastapi.responses import JSONResponse
+    from fastapi.testclient import TestClient
+
+    from xfloor_mcp.server_http import create_http_app
+    from xfloor_mcp.settings import Settings
+
+    clear_identity_cache()
+    calls: list[tuple[str, str]] = []
+
+    async def debug_context(_: Any) -> JSONResponse:
+        return JSONResponse({"user_id": get_user_id(), "oauth_subject": get_oauth_subject()})
+
+    def fake_verify_oauth_user(issuer: str, subject: str, settings: Any, claims: Any = None) -> str:
+        calls.append((issuer, subject))
+        return "cached-oauth-user"
+
+    debug_app = FastAPI()
+    debug_app.add_api_route("/{path:path}", debug_context, methods=["GET", "POST"])
+    monkeypatch.setattr("xfloor_mcp.server_http._build_mcp_app", lambda mcp: debug_app)
+    monkeypatch.setattr("xfloor_mcp.auth.oauth.verify_oauth_user", fake_verify_oauth_user)
+
+    app = create_http_app(
+        Settings(
+            XFLOOR_BASE_URL="https://appfloor.in",
+            XFLOOR_AUTH_MODE="oauth",
+            XFLOOR_OAUTH_STUB_ENABLED=True,
+            XFLOOR_DEFAULT_APP_ID="fallback-app",
+        )
+    )
+    client = TestClient(app)
+    token = _encode_stub_jwt({"iss": "https://issuer.example/", "sub": "auth0|same-user"})
+
+    first = client.post("/mcp", headers={"Authorization": f"Bearer {token}"}, json={"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}})
+    second = client.post("/mcp", headers={"Authorization": f"Bearer {token}"}, json={"jsonrpc": "2.0", "id": 2, "method": "initialize", "params": {}})
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert first.json()["user_id"] == "cached-oauth-user"
+    assert second.json()["user_id"] == "cached-oauth-user"
+    assert calls == [("https://issuer.example/", "auth0|same-user")]
+
+
+@pytest.mark.skipif(not (HAS_DEPS and HAS_FASTAPI), reason="requires fastapi + runtime deps")
+def test_http_middleware_auto_mode_prefers_oauth_when_bearer_header_is_present(monkeypatch: pytest.MonkeyPatch) -> None:
+    from fastapi import FastAPI
+    from fastapi.responses import JSONResponse
+    from fastapi.testclient import TestClient
+
+    from xfloor_mcp.server_http import create_http_app
+    from xfloor_mcp.settings import Settings
+
+    clear_identity_cache()
+
+    async def debug_context(_: Any) -> JSONResponse:
+        return JSONResponse({"auth_mode": get_auth_mode(), "user_id": get_user_id()})
+
+    debug_app = FastAPI()
+    debug_app.add_api_route("/{path:path}", debug_context, methods=["GET", "POST"])
+    monkeypatch.setattr("xfloor_mcp.server_http._build_mcp_app", lambda mcp: debug_app)
+
+    app = create_http_app(
+        Settings(
+            XFLOOR_BASE_URL="https://appfloor.in",
+            XFLOOR_AUTH_MODE="auto",
+            XFLOOR_OAUTH_STUB_ENABLED=True,
+            XFLOOR_OAUTH_STUB_USER_ID="oauth-wins",
+            XFLOOR_DEFAULT_APP_ID="fallback-app",
+        )
+    )
+    client = TestClient(app)
+    token = _encode_stub_jwt({"iss": "https://issuer.example/", "sub": "auth0|auto-user"})
+    response = client.post(
+        "/mcp",
+        headers={
+            "Authorization": f"Bearer {token}",
+            "X-XFloor-User-Id": "header-user-should-not-win",
+        },
+        json={"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}},
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["auth_mode"] == "oauth"
+    assert payload["user_id"] == "oauth-wins"
+
+
+@pytest.mark.skipif(not (HAS_DEPS and HAS_FASTAPI), reason="requires fastapi + runtime deps")
+def test_http_middleware_auto_mode_falls_back_to_noauth_without_bearer(monkeypatch: pytest.MonkeyPatch) -> None:
+    from fastapi import FastAPI
+    from fastapi.responses import JSONResponse
+    from fastapi.testclient import TestClient
+
+    from xfloor_mcp.server_http import create_http_app
+    from xfloor_mcp.settings import Settings
+
+    clear_identity_cache()
+
+    async def debug_context(_: Any) -> JSONResponse:
+        return JSONResponse({"auth_mode": get_auth_mode(), "user_id": get_user_id(), "auth_token": get_auth_token()})
+
+    debug_app = FastAPI()
+    debug_app.add_api_route("/{path:path}", debug_context, methods=["GET", "POST"])
+    monkeypatch.setattr("xfloor_mcp.server_http._build_mcp_app", lambda mcp: debug_app)
+
+    app = create_http_app(
+        Settings(
+            XFLOOR_BASE_URL="https://appfloor.in",
+            XFLOOR_AUTH_MODE="auto",
+            XFLOOR_OAUTH_STUB_ENABLED=True,
+            XFLOOR_DEFAULT_AUTH_TOKEN="default-noauth-token",
+        )
+    )
+    client = TestClient(app)
+    response = client.post(
+        "/mcp",
+        headers={
+            "X-XFloor-User-Id": "fallback-noauth-user",
+            "X-XFloor-App-Id": "fallback-noauth-app",
+        },
+        json={"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}},
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["auth_mode"] == "noauth"
+    assert payload["user_id"] == "fallback-noauth-user"
+    assert payload["auth_token"] == "default-noauth-token"
+
+
+@pytest.mark.skipif(not (HAS_DEPS and HAS_FASTAPI), reason="requires fastapi + runtime deps")
+def test_http_middleware_oauth_mode_rejects_missing_token(monkeypatch: pytest.MonkeyPatch) -> None:
+    from fastapi import FastAPI
+    from fastapi.responses import JSONResponse
+    from fastapi.testclient import TestClient
+
+    from xfloor_mcp.server_http import create_http_app
+    from xfloor_mcp.settings import Settings
+
+    clear_identity_cache()
+
+    async def debug_context(_: Any) -> JSONResponse:
+        return JSONResponse({"ok": True})
+
+    debug_app = FastAPI()
+    debug_app.add_api_route("/{path:path}", debug_context, methods=["GET", "POST"])
+    monkeypatch.setattr("xfloor_mcp.server_http._build_mcp_app", lambda mcp: debug_app)
+
+    app = create_http_app(
+        Settings(
+            XFLOOR_BASE_URL="https://appfloor.in",
+            XFLOOR_AUTH_MODE="oauth",
+            XFLOOR_OAUTH_STUB_ENABLED=True,
+            XFLOOR_DEFAULT_APP_ID="fallback-app",
+        )
+    )
+    client = TestClient(app)
+    response = client.post("/mcp", json={"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}})
+    assert response.status_code == 401
+    assert "Missing bearer token" in response.json()["error"]
+
+
+@pytest.mark.skipif(not (HAS_DEPS and HAS_FASTAPI), reason="requires fastapi + runtime deps")
+def test_http_middleware_oauth_mode_rejects_missing_stub_identity(monkeypatch: pytest.MonkeyPatch) -> None:
+    from fastapi import FastAPI
+    from fastapi.responses import JSONResponse
+    from fastapi.testclient import TestClient
+
+    from xfloor_mcp.server_http import create_http_app
+    from xfloor_mcp.settings import Settings
+
+    clear_identity_cache()
+
+    async def debug_context(_: Any) -> JSONResponse:
+        return JSONResponse({"ok": True})
+
+    debug_app = FastAPI()
+    debug_app.add_api_route("/{path:path}", debug_context, methods=["GET", "POST"])
+    monkeypatch.setattr("xfloor_mcp.server_http._build_mcp_app", lambda mcp: debug_app)
+
+    app = create_http_app(
+        Settings(
+            XFLOOR_BASE_URL="https://appfloor.in",
+            XFLOOR_AUTH_MODE="oauth",
+            XFLOOR_OAUTH_STUB_ENABLED=True,
+            XFLOOR_DEFAULT_APP_ID="fallback-app",
+        )
+    )
+    client = TestClient(app)
+    response = client.post(
+        "/mcp",
+        headers={"Authorization": "Bearer not-a-jwt"},
+        json={"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}},
+    )
+    assert response.status_code == 401
+    assert "Unable to resolve OAuth identity" in response.json()["error"]
+
+
+@pytest.mark.skipif(not HAS_DEPS, reason="requires pydantic/httpx")
+@pytest.mark.asyncio
+async def test_current_floor_tools_continue_to_work_with_oauth_resolved_user() -> None:
+    clear_identity_cache()
+    mcp = TestToolsSmoke._FakeMCP()
+    set_auth_token("oauth-token")
+    set_user_id("oauth-dev-user")
+    set_app_id("oauth-app")
+    set_active_floor_id(None)
+    set_session_key("oauth-session")
+
+    class _FakeClient:
+        async def create_event(self, token: str, **kwargs: Any) -> dict[str, Any]:
+            payload = json.loads(kwargs["input_info"])
+            assert payload["user_id"] == "oauth-dev-user"
+            assert payload["floor_id"] == "phari"
+            return {"ok": True}
+
+        async def recent_events(self, token: str, *, params: dict[str, Any]) -> dict[str, Any]:
+            assert params["floor_id"] == "phari"
+            return {"events": [{"title": "OAuth Demo"}]}
+
+        async def query_memory(self, token: str, **kwargs: Any) -> dict[str, Any]:
+            assert kwargs["user_id"] == "oauth-dev-user"
+            assert kwargs["floor_ids"] == ["phari"]
+            return {"answers": ["ok"]}
+
+    register_tools(mcp=mcp, client=_FakeClient())
+
+    set_result = await mcp.registry["xfloor_set_active_floor"](XFloorSetActiveFloorInput(floor_ref="@phari"), None)
+    query_result = await mcp.registry["xfloor_query_current_floor"](
+        XFloorQueryCurrentFloorInput(query="What is happening?"),
+        None,
+    )
+    post_result = await mcp.registry["xfloor_post_event_to_current_floor"](
+        XFloorPostEventToCurrentFloorInput(title="OAuth Town Hall", description="Bring questions"),
+        None,
+    )
+
+    assert set_result["message"] == "Active floor set to phari"
+    assert query_result["floor_source"] == "session_state"
+    assert post_result["posted"] is True

@@ -1,8 +1,9 @@
 """Application settings loaded from environment variables."""
 
 from functools import lru_cache
+from typing import Literal
 
-from pydantic import Field, field_validator
+from pydantic import AliasChoices, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -28,9 +29,18 @@ class Settings(BaseSettings):
 
     xfloor_base_url: str = Field(default="https://appfloor.in", alias="XFLOOR_BASE_URL")
     xfloor_timeout_seconds: float = Field(default=15.0, alias="XFLOOR_TIMEOUT_SECONDS")
-    xfloor_default_auth_token: str | None = Field(default=None, alias="XFLOOR_DEFAULT_AUTH_TOKEN")
+    xfloor_default_auth_token: str | None = Field(
+        default=None,
+        alias="XFLOOR_DEFAULT_AUTH_TOKEN",
+        validation_alias=AliasChoices("XFLOOR_DEFAULT_AUTH_TOKEN", "XFLOOR_DEFAULT_BEARER_TOKEN"),
+    )
     xfloor_default_user_id: str | None = Field(default=None, alias="XFLOOR_DEFAULT_USER_ID")
     xfloor_default_app_id: str | None = Field(default=None, alias="XFLOOR_DEFAULT_APP_ID")
+    xfloor_auth_mode: Literal["noauth", "oauth", "auto"] = Field(default="auto", alias="XFLOOR_AUTH_MODE")
+    xfloor_oauth_stub_enabled: bool = Field(default=False, alias="XFLOOR_OAUTH_STUB_ENABLED")
+    xfloor_oauth_stub_iss: str | None = Field(default=None, alias="XFLOOR_OAUTH_STUB_ISS")
+    xfloor_oauth_stub_sub: str | None = Field(default=None, alias="XFLOOR_OAUTH_STUB_SUB")
+    xfloor_oauth_stub_user_id: str = Field(default="oauth-dev-user", alias="XFLOOR_OAUTH_STUB_USER_ID")
 
     @field_validator("cors_allow_origins", "cors_allow_methods", "cors_allow_headers", mode="before")
     @classmethod
@@ -40,6 +50,14 @@ class Settings(BaseSettings):
         if isinstance(value, str):
             return [item.strip() for item in value.split(",") if item.strip()]
         return value
+
+    @field_validator("xfloor_oauth_stub_user_id")
+    @classmethod
+    def _validate_oauth_stub_user_id(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("XFLOOR_OAUTH_STUB_USER_ID cannot be empty.")
+        return normalized
 
 
 @lru_cache(maxsize=1)
