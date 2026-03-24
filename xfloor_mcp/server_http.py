@@ -10,7 +10,12 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from mcp.server.fastmcp import FastMCP
 
-from .auth import OAuthResolutionError, resolve_request_identity
+from .auth import (
+    OAuthResolutionError,
+    build_www_authenticate_header,
+    protected_resource_metadata,
+    resolve_request_identity,
+)
 from .request_context import (
     set_auth_mode,
     set_active_floor_id,
@@ -102,9 +107,18 @@ def create_http_app(settings: Settings) -> FastAPI:
                     "Set required headers or configure XFLOOR_DEFAULT_AUTH_TOKEN / XFLOOR_DEFAULT_BEARER_TOKEN / "
                     "XFLOOR_DEFAULT_USER_ID / XFLOOR_DEFAULT_APP_ID for local development."
                 )
+            headers: dict[str, str] = {}
+            if settings.xfloor_auth_mode == "oauth":
+                resource_metadata_url = str(request.url_for("oauth_protected_resource_metadata"))
+                headers["WWW-Authenticate"] = build_www_authenticate_header(
+                    settings,
+                    resource_metadata_url,
+                    error="invalid_token" if exc.status_code == 401 else "invalid_request",
+                )
             return JSONResponse(
                 status_code=exc.status_code,
                 content=content,
+                headers=headers,
             )
 
         set_auth_mode(identity.auth_mode)
@@ -130,6 +144,10 @@ def create_http_app(settings: Settings) -> FastAPI:
     @app.get("/healthz")
     async def healthz() -> dict[str, bool]:
         return {"ok": True}
+
+    @app.get("/.well-known/oauth-protected-resource", name="oauth_protected_resource_metadata")
+    async def oauth_protected_resource_metadata() -> dict[str, Any]:
+        return protected_resource_metadata(settings)
 
     app.mount("/", _build_mcp_app(mcp))
     return app

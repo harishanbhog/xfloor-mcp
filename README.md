@@ -55,6 +55,10 @@ XFLOOR_DEFAULT_USER_ID=local-dev-user
 XFLOOR_DEFAULT_APP_ID=local-dev-app
 XFLOOR_AUTH_MODE=auto
 XFLOOR_OAUTH_STUB_ENABLED=false
+XFLOOR_AUTH0_DOMAIN=dev-aobq6ntuhxzmcu6j.jp.auth0.com
+XFLOOR_AUTH0_ISSUER=https://dev-aobq6ntuhxzmcu6j.jp.auth0.com/
+XFLOOR_AUTH0_AUDIENCE=https://xFloorMCPTest
+XFLOOR_OAUTH_RESOURCE=https://<your-current-ngrok-domain>
 XFLOOR_OAUTH_STUB_ISS=https://example.auth0.com/
 XFLOOR_OAUTH_STUB_SUB=auth0|demo-user
 XFLOOR_OAUTH_STUB_USER_ID=oauth-dev-user
@@ -66,31 +70,32 @@ Auth + identity behavior:
 - `XFLOOR_AUTH_MODE` supports `noauth`, `oauth`, and `auto`. The default is `auto`, which is the least disruptive option here because it preserves the current noauth/dev flow unless an explicit bearer header is present and OAuth stub mode is enabled.
 - For local/ngrok development, you can set `XFLOOR_DEFAULT_AUTH_TOKEN` (or compatibility alias `XFLOOR_DEFAULT_BEARER_TOKEN`), `XFLOOR_DEFAULT_USER_ID`, and `XFLOOR_DEFAULT_APP_ID` in `.env` to use defaults when headers are absent.
 - Token is forwarded as Bearer auth and `user_id` / `app_id` are attached to every xFloor request as query params.
-- In OAuth-ready modes, the MCP server validates the bearer token through a dev/stub verifier, extracts `iss + sub`, resolves an xFloor `user_id`, and caches that mapping in memory for reuse.
+- In `oauth` mode, the MCP server validates the bearer token against Auth0 issuer metadata / JWKS, extracts `iss + sub`, resolves an xFloor `user_id`, and caches that mapping in memory for reuse.
 
-### OAuth-ready dev stub mode
+### Real Auth0-backed OAuth test mode
 
-This repo now includes an **OAuth-ready MCP-side request identity layer**. It is intentionally **not a full production OAuth/Auth0 integration yet**.
+This repo now includes a **real Auth0-backed OAuth test flow** for `XFLOOR_AUTH_MODE=oauth`. This is intended for current ngrok-based testing with the current Auth0 tenant and API. Production tenant/app/API values can be swapped later via environment variables.
 
 What it does today:
 
 1. Accepts `Authorization: Bearer <token>` on each MCP request
-2. In OAuth-capable modes, validates the token through a **stub/dev verifier**
+2. In `oauth` mode, validates the token against Auth0 OIDC metadata and JWKS
 3. Extracts verified `iss + sub`
 4. Resolves `iss + sub -> xfloor user_id` using a **stub `verify_oauth_user(...)`**
 5. Caches that identity mapping **in memory only** for the life of the server process
 6. Populates the existing request context so the current tools continue working unchanged
+7. Exposes protected resource metadata at `/.well-known/oauth-protected-resource`
+8. Returns `401 Unauthorized` plus `WWW-Authenticate: Bearer ... resource_metadata=...` on unauthenticated or invalid protected requests in `oauth` mode
 
 What is still stubbed:
 
-- Access-token verification is currently a **dev stub** only
-- JWT payloads can be decoded **without signature verification only when `XFLOOR_OAUTH_STUB_ENABLED=true`**
-- `verify_oauth_user(...)` currently returns `XFLOOR_OAUTH_STUB_USER_ID`
-- There is **no real JWKS/Auth0 validation** or backend user-linking API call yet
+- `verify_oauth_user(...)` still returns `XFLOOR_OAUTH_STUB_USER_ID`
+- The xFloor-side user-linking/backend lookup is not implemented yet
+- The identity cache is still in-memory only and resets on restart
 
 What would be replaced later:
 
-- The stub `verify_access_token(...)` implementation in `xfloor_mcp/auth/`
+- The Auth0 test tenant/app/API configuration values
 - The stub `verify_oauth_user(...)` lookup in `xfloor_mcp/auth/`
 
 Mode behavior:
@@ -103,23 +108,26 @@ Mode behavior:
 
 - `XFLOOR_AUTH_MODE=oauth`
   - Requires a bearer token
-  - Verifies it via the stub verifier
+  - Verifies it via Auth0 issuer metadata and JWKS
   - Extracts `iss + sub`
   - Resolves and caches `user_id`
   - Does **not** require `X-XFloor-User-Id`
   - Still uses `X-XFloor-App-Id` or `XFLOOR_DEFAULT_APP_ID` for app context
+  - Exposes protected resource metadata and Bearer challenges for ChatGPT/oauth-aware clients
 
 - `XFLOOR_AUTH_MODE=auto`
-  - If an `Authorization` bearer header is present **and** `XFLOOR_OAUTH_STUB_ENABLED=true`, the server tries the OAuth-ready path first
+  - Preserves the current local/ngrok dev behavior exactly
+  - If an `Authorization` bearer header is present **and** `XFLOOR_OAUTH_STUB_ENABLED=true`, the server uses the existing stub OAuth path first
   - Otherwise it falls back to the current noauth/dev flow
 
-Example OAuth-stub env:
+Example Auth0-backed test env:
 
 ```env
-XFLOOR_AUTH_MODE=auto
-XFLOOR_OAUTH_STUB_ENABLED=true
-XFLOOR_OAUTH_STUB_ISS=https://example.auth0.com/
-XFLOOR_OAUTH_STUB_SUB=auth0|demo-user
+XFLOOR_AUTH_MODE=oauth
+XFLOOR_AUTH0_DOMAIN=dev-aobq6ntuhxzmcu6j.jp.auth0.com
+XFLOOR_AUTH0_ISSUER=https://dev-aobq6ntuhxzmcu6j.jp.auth0.com/
+XFLOOR_AUTH0_AUDIENCE=https://xFloorMCPTest
+XFLOOR_OAUTH_RESOURCE=https://<your-current-ngrok-domain>
 XFLOOR_OAUTH_STUB_USER_ID=oauth-dev-user
 XFLOOR_DEFAULT_APP_ID=local-dev-app
 ```
@@ -128,7 +136,17 @@ Notes:
 
 - Active-floor session behavior is unchanged.
 - The identity cache is in-memory only and resets on process restart.
-- This setup is meant to make a later real Auth0/JWKS integration a drop-in replacement rather than a server-wide refactor.
+- Dynamic client registration is expected on the Auth0 side via `https://dev-aobq6ntuhxzmcu6j.jp.auth0.com/oidc/register`.
+- `XFLOOR_OAUTH_RESOURCE` should be the current public ngrok base URL for MCP testing.
+- Production Auth0 tenant/app/API values can later be swapped by changing env only.
+
+Testing with ChatGPT developer mode + ngrok:
+
+1. Start the server with `XFLOOR_AUTH_MODE=oauth` and the Auth0 env above.
+2. Expose the server through ngrok and set `XFLOOR_OAUTH_RESOURCE` to that public base URL.
+3. Ensure the Auth0 application/client is configured for the MCP test API audience and dynamic registration flow.
+4. Point ChatGPT developer mode at the ngrok MCP URL.
+5. ChatGPT should discover the protected-resource metadata, follow the Bearer challenge, obtain an Auth0 token for the configured audience, and then call the MCP tools with `Authorization: Bearer <token>`.
 
 ---
 

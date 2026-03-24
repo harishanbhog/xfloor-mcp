@@ -1,10 +1,11 @@
-"""Small OAuth-ready request identity resolver for xFloor MCP.
+"""Small request identity resolver for xFloor MCP.
 
 Important:
-- This is a dev/stub verifier only.
-- It does NOT perform real signature/JWKS/Auth0 validation yet.
-- The intent is to centralize the request-resolution flow so a future
-  production verifier can be swapped in with minimal changes elsewhere.
+- `oauth` mode uses real Auth0 issuer metadata / JWKS validation.
+- `auto` preserves the existing dev/noauth behavior and only uses the
+  explicit stub verifier path when it is already enabled.
+- The intent is to centralize request-resolution flow so future production
+  auth changes remain isolated from tools and transport wiring.
 """
 
 from __future__ import annotations
@@ -13,8 +14,11 @@ import base64
 import json
 import logging
 import time
+from functools import lru_cache
 from dataclasses import dataclass, field
 from typing import Any, Mapping
+from urllib.parse import urljoin
+from urllib.request import urlopen
 
 from ..settings import Settings
 
@@ -95,31 +99,135 @@ def _decode_unverified_jwt_claims(token: str) -> dict[str, Any]:
     return parsed if isinstance(parsed, dict) else {}
 
 
-def verify_access_token(token: str, settings: Settings) -> VerifiedIdentity:
-    """Dev/stub OAuth verifier.
-
-    This intentionally does not verify signatures. It only exists to exercise
-    the request-resolution plumbing until a real OAuth/JWKS verifier is wired in.
-    """
-
-    if not settings.xfloor_oauth_stub_enabled:
+def _import_jwt_dependencies() -> tuple[Any, Any]:
+    try:
+        import jwt
+        from jwt import PyJWKClient
+    except ImportError as exc:
         raise OAuthResolutionError(
-            "OAuth stub verification is disabled. Set XFLOOR_OAUTH_STUB_ENABLED=true to use OAuth stub mode.",
-            status_code=401,
+            "OAuth mode requires PyJWT with JWK support. Install server dependencies for Auth0 verification.",
+            status_code=500,
+        ) from exc
+
+    return jwt, PyJWKClient
+
+
+def _normalize_issuer(settings: Settings) -> str:
+    issuer = (settings.xfloor_auth0_issuer or "").strip()
+    if issuer:
+        return issuer if issuer.endswith("/") else f"{issuer}/"
+
+    domain = (settings.xfloor_auth0_domain or "").strip()
+    if not domain:
+        raise OAuthResolutionError(
+            "OAuth mode requires XFLOOR_AUTH0_ISSUER or XFLOOR_AUTH0_DOMAIN to be configured.",
+            status_code=500,
         )
+    domain = domain.removeprefix("https://").removeprefix("http://").strip("/")
+    return f"https://{domain}/"
 
-    claims = _decode_unverified_jwt_claims(token)
-    issuer = str(claims.get("iss") or settings.xfloor_oauth_stub_iss or "").strip()
-    subject = str(claims.get("sub") or settings.xfloor_oauth_stub_sub or "").strip()
 
+@lru_cache(maxsize=8)
+def _fetch_openid_configuration(issuer: str) -> dict[str, Any]:
+    metadata_url = urljoin(issuer, ".well-known/openid-configuration")
+    try:
+        with urlopen(metadata_url, timeout=5) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except Exception as exc:  # noqa: BLE001 - normalize network/JSON fetch failures
+        raise OAuthResolutionError(f"Failed to fetch OAuth issuer metadata: {exc}", status_code=502) from exc
+    if not isinstance(payload, dict):
+        raise OAuthResolutionError("Auth0 OIDC metadata response must be a JSON object.", status_code=502)
+    return payload
+
+
+@lru_cache(maxsize=8)
+def _build_jwks_client(jwks_uri: str) -> Any:
+    _, pyjwk_client_cls = _import_jwt_dependencies()
+    return pyjwk_client_cls(jwks_uri)
+
+
+def _verify_auth0_access_token(token: str, settings: Settings) -> dict[str, Any]:
+    jwt, _ = _import_jwt_dependencies()
+    issuer = _normalize_issuer(settings)
+    audience = (settings.xfloor_auth0_audience or "").strip()
+    if not audience:
+        raise OAuthResolutionError("OAuth mode requires XFLOOR_AUTH0_AUDIENCE to be configured.", status_code=500)
+
+    metadata = _fetch_openid_configuration(issuer)
+    jwks_uri = str(metadata.get("jwks_uri") or "").strip()
+    if not jwks_uri:
+        raise OAuthResolutionError("OIDC metadata did not contain jwks_uri.", status_code=502)
+
+    try:
+        signing_key = _build_jwks_client(jwks_uri).get_signing_key_from_jwt(token)
+        claims = jwt.decode(
+            token,
+            signing_key.key,
+            algorithms=["RS256"],
+            audience=audience,
+            issuer=issuer,
+            options={"require": ["exp", "iss", "sub"]},
+        )
+    except Exception as exc:  # noqa: BLE001 - normalize third-party JWT errors
+        raise OAuthResolutionError(f"Invalid bearer token: {exc}", status_code=401) from exc
+
+    if not isinstance(claims, dict):
+        raise OAuthResolutionError("Validated bearer token claims were not a JSON object.", status_code=401)
+    return claims
+
+
+def protected_resource_metadata(settings: Settings) -> dict[str, Any]:
+    issuer = _normalize_issuer(settings)
+    resource = (settings.xfloor_oauth_resource or "").strip()
+    if not resource:
+        raise OAuthResolutionError("OAuth mode requires XFLOOR_OAUTH_RESOURCE to be configured.", status_code=500)
+
+    return {
+        "resource": resource,
+        "authorization_servers": [issuer],
+        "scopes_supported": ["openid", "profile", "email", "offline_access"],
+        "resource_documentation": resource,
+    }
+
+
+def build_www_authenticate_header(settings: Settings, resource_metadata_url: str, error: str | None = None) -> str:
+    parts = [f'Bearer realm="xfloor-mcp"', f'resource_metadata="{resource_metadata_url}"']
+    if error:
+        parts.append(f'error="{error}"')
+    return ", ".join(parts)
+
+
+def verify_access_token(token: str, settings: Settings, *, use_stub: bool = False) -> VerifiedIdentity:
+    """Verify access tokens for either real oauth mode or explicit stub mode."""
+
+    if use_stub:
+        if not settings.xfloor_oauth_stub_enabled:
+            raise OAuthResolutionError(
+                "OAuth stub verification is disabled. Set XFLOOR_OAUTH_STUB_ENABLED=true to use OAuth stub mode.",
+                status_code=401,
+            )
+
+        claims = _decode_unverified_jwt_claims(token)
+        issuer = str(claims.get("iss") or settings.xfloor_oauth_stub_iss or "").strip()
+        subject = str(claims.get("sub") or settings.xfloor_oauth_stub_sub or "").strip()
+
+        if not issuer or not subject:
+            raise OAuthResolutionError(
+                "Unable to resolve OAuth identity from bearer token. Provide JWT iss/sub claims or set "
+                "XFLOOR_OAUTH_STUB_ISS and XFLOOR_OAUTH_STUB_SUB.",
+                status_code=401,
+            )
+
+        logger.info("Using OAuth stub verifier for issuer=%s subject=%s", issuer, subject)
+        return VerifiedIdentity(issuer=issuer, subject=subject, claims=claims)
+
+    claims = _verify_auth0_access_token(token, settings)
+    issuer = str(claims.get("iss") or "").strip()
+    subject = str(claims.get("sub") or "").strip()
     if not issuer or not subject:
-        raise OAuthResolutionError(
-            "Unable to resolve OAuth identity from bearer token. Provide JWT iss/sub claims or set "
-            "XFLOOR_OAUTH_STUB_ISS and XFLOOR_OAUTH_STUB_SUB.",
-            status_code=401,
-        )
+        raise OAuthResolutionError("Validated bearer token did not contain both iss and sub claims.", status_code=401)
 
-    logger.info("Using OAuth stub verifier for issuer=%s subject=%s", issuer, subject)
+    logger.info("Validated OAuth access token for issuer=%s subject=%s", issuer, subject)
     return VerifiedIdentity(issuer=issuer, subject=subject, claims=claims)
 
 
@@ -133,6 +241,25 @@ def verify_oauth_user(issuer: str, subject: str, settings: Settings, claims: Map
     resolved_user_id = settings.xfloor_oauth_stub_user_id.strip()
     logger.info("Using OAuth user stub for issuer=%s subject=%s -> user_id=%s", issuer, subject, resolved_user_id)
     return resolved_user_id
+
+
+def _resolve_cached_user_id(verified_identity: VerifiedIdentity, settings: Settings) -> str:
+    cache_key = (verified_identity.issuer, verified_identity.subject)
+    cached = _IDENTITY_CACHE.get(cache_key)
+
+    if cached:
+        logger.info("OAuth identity cache hit for issuer=%s subject=%s", verified_identity.issuer, verified_identity.subject)
+        return cached.user_id
+
+    logger.info("OAuth identity cache miss for issuer=%s subject=%s", verified_identity.issuer, verified_identity.subject)
+    user_id = verify_oauth_user(
+        verified_identity.issuer,
+        verified_identity.subject,
+        settings,
+        claims=verified_identity.claims,
+    )
+    _IDENTITY_CACHE[cache_key] = _IdentityCacheEntry(user_id=user_id, cached_at=time.time())
+    return user_id
 
 
 def _build_session_key(headers: Mapping[str, str], user_id: str, app_id: str) -> str:
@@ -190,30 +317,8 @@ def _resolve_oauth_identity(headers: Mapping[str, str], settings: Settings) -> R
         )
 
     active_floor_id = headers.get("X-XFloor-Active-Floor-Id")
-    verified_identity = verify_access_token(token, settings)
-    cache_key = (verified_identity.issuer, verified_identity.subject)
-    cached = _IDENTITY_CACHE.get(cache_key)
-
-    if cached:
-        logger.info(
-            "OAuth identity cache hit for issuer=%s subject=%s",
-            verified_identity.issuer,
-            verified_identity.subject,
-        )
-        user_id = cached.user_id
-    else:
-        logger.info(
-            "OAuth identity cache miss for issuer=%s subject=%s",
-            verified_identity.issuer,
-            verified_identity.subject,
-        )
-        user_id = verify_oauth_user(
-            verified_identity.issuer,
-            verified_identity.subject,
-            settings,
-            claims=verified_identity.claims,
-        )
-        _IDENTITY_CACHE[cache_key] = _IdentityCacheEntry(user_id=user_id, cached_at=time.time())
+    verified_identity = verify_access_token(token, settings, use_stub=False)
+    user_id = _resolve_cached_user_id(verified_identity, settings)
 
     logger.info(
         "Resolved OAuth request identity issuer=%s subject=%s auth_mode=%s",
@@ -253,6 +358,28 @@ def resolve_request_identity(headers: Mapping[str, str], settings: Settings) -> 
 
     header_bearer = _extract_bearer(headers.get("Authorization"))
     if header_bearer and settings.xfloor_oauth_stub_enabled:
-        return _resolve_oauth_identity(headers, settings)
+        token = header_bearer or settings.xfloor_default_auth_token
+        if not token:
+            raise OAuthResolutionError("Missing bearer token. Provide Authorization: Bearer <token>.", status_code=401)
+
+        app_id = headers.get("X-XFloor-App-Id") or settings.xfloor_default_app_id
+        if not app_id:
+            raise OAuthResolutionError(
+                "Missing xFloor app context. Provide X-XFloor-App-Id or configure XFLOOR_DEFAULT_APP_ID.",
+                status_code=400,
+            )
+
+        active_floor_id = headers.get("X-XFloor-Active-Floor-Id")
+        verified_identity = verify_access_token(token, settings, use_stub=True)
+        user_id = _resolve_cached_user_id(verified_identity, settings)
+        return RequestIdentity(
+            auth_mode="oauth",
+            auth_token=token,
+            user_id=user_id,
+            app_id=app_id,
+            active_floor_id=active_floor_id,
+            session_key=_build_session_key(headers, user_id, app_id),
+            verified_identity=verified_identity,
+        )
 
     return _resolve_noauth_identity(headers, settings)

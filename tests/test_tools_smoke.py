@@ -18,6 +18,7 @@ HAS_DEPS = HAS_PYDANTIC and HAS_HTTPX
 
 if HAS_DEPS:
     from xfloor_mcp.auth import clear_identity_cache
+    from xfloor_mcp.auth.oauth import VerifiedIdentity, verify_access_token
     from xfloor_mcp.request_context import (
         get_auth_mode,
         get_app_id,
@@ -31,6 +32,7 @@ if HAS_DEPS:
         set_auth_token,
         set_user_id,
     )
+    from xfloor_mcp.settings import Settings
     from xfloor_mcp.tools import (
         XFloorCreateEventInput,
         XFloorGetCurrentFloorEventsInput,
@@ -322,6 +324,56 @@ class TestToolsSmoke:
         assert result["event"]["block_id"] == "chatgpt"
 
     @pytest.mark.asyncio
+    async def test_real_oauth_verifier_uses_auth0_metadata_and_claims(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        class _FakePyJWKClient:
+            def __init__(self, jwks_uri: str) -> None:
+                assert jwks_uri == "https://issuer.example/.well-known/jwks.json"
+
+            def get_signing_key_from_jwt(self, token: str) -> Any:
+                assert token == "auth0-token"
+                return SimpleNamespace(key="public-key")
+
+        class _FakeJWTModule:
+            def decode(self, token: str, key: str, algorithms: list[str], audience: str, issuer: str, options: dict[str, Any]) -> dict[str, Any]:
+                assert token == "auth0-token"
+                assert key == "public-key"
+                assert algorithms == ["RS256"]
+                assert audience == "https://xFloorMCPTest"
+                assert issuer == "https://issuer.example/"
+                assert options["require"] == ["exp", "iss", "sub"]
+                return {
+                    "iss": "https://issuer.example/",
+                    "sub": "auth0|verified-user",
+                    "exp": 9999999999,
+                    "scope": "openid profile",
+                }
+
+        monkeypatch.setattr(
+            "xfloor_mcp.auth.oauth._import_jwt_dependencies",
+            lambda: (_FakeJWTModule(), _FakePyJWKClient),
+        )
+        monkeypatch.setattr(
+            "xfloor_mcp.auth.oauth._fetch_openid_configuration",
+            lambda issuer: {"jwks_uri": "https://issuer.example/.well-known/jwks.json"},
+        )
+
+        identity = verify_access_token(
+            "auth0-token",
+            Settings(
+                XFLOOR_AUTH_MODE="oauth",
+                XFLOOR_AUTH0_ISSUER="https://issuer.example/",
+                XFLOOR_AUTH0_AUDIENCE="https://xFloorMCPTest",
+                XFLOOR_OAUTH_RESOURCE="https://resource.example",
+            ),
+            use_stub=False,
+        )
+
+        assert isinstance(identity, VerifiedIdentity)
+        assert identity.issuer == "https://issuer.example/"
+        assert identity.subject == "auth0|verified-user"
+        assert identity.claims["scope"] == "openid profile"
+
+    @pytest.mark.asyncio
     async def test_stored_floor_takes_precedence_over_stale_header(self) -> None:
         mcp = self._FakeMCP()
         set_auth_token("ctx-token")
@@ -528,21 +580,26 @@ def test_http_middleware_oauth_mode_resolves_user_and_sets_context(monkeypatch: 
     debug_app = FastAPI()
     debug_app.add_api_route("/{path:path}", debug_context, methods=["GET", "POST"])
     monkeypatch.setattr("xfloor_mcp.server_http._build_mcp_app", lambda mcp: debug_app)
+    monkeypatch.setattr(
+        "xfloor_mcp.auth.oauth._verify_auth0_access_token",
+        lambda token, settings: {"iss": "https://example.auth0.com/", "sub": "auth0|demo-user", "scope": "openid profile"},
+    )
 
     app = create_http_app(
         Settings(
             XFLOOR_BASE_URL="https://appfloor.in",
             XFLOOR_AUTH_MODE="oauth",
-            XFLOOR_OAUTH_STUB_ENABLED=True,
             XFLOOR_OAUTH_STUB_USER_ID="oauth-dev-user",
             XFLOOR_DEFAULT_APP_ID="fallback-app",
+            XFLOOR_AUTH0_ISSUER="https://example.auth0.com/",
+            XFLOOR_AUTH0_AUDIENCE="https://xFloorMCPTest",
+            XFLOOR_OAUTH_RESOURCE="https://resource.example",
         )
     )
     client = TestClient(app)
-    token = _encode_stub_jwt({"iss": "https://example.auth0.com/", "sub": "auth0|demo-user"})
     response = client.post(
         "/mcp",
-        headers={"Authorization": f"Bearer {token}"},
+        headers={"Authorization": "Bearer auth0-token"},
         json={"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}},
     )
     assert response.status_code == 200
@@ -578,17 +635,23 @@ def test_http_middleware_oauth_mode_uses_identity_cache(monkeypatch: pytest.Monk
     debug_app.add_api_route("/{path:path}", debug_context, methods=["GET", "POST"])
     monkeypatch.setattr("xfloor_mcp.server_http._build_mcp_app", lambda mcp: debug_app)
     monkeypatch.setattr("xfloor_mcp.auth.oauth.verify_oauth_user", fake_verify_oauth_user)
+    monkeypatch.setattr(
+        "xfloor_mcp.auth.oauth._verify_auth0_access_token",
+        lambda token, settings: {"iss": "https://issuer.example/", "sub": "auth0|same-user"},
+    )
 
     app = create_http_app(
         Settings(
             XFLOOR_BASE_URL="https://appfloor.in",
             XFLOOR_AUTH_MODE="oauth",
-            XFLOOR_OAUTH_STUB_ENABLED=True,
             XFLOOR_DEFAULT_APP_ID="fallback-app",
+            XFLOOR_AUTH0_ISSUER="https://issuer.example/",
+            XFLOOR_AUTH0_AUDIENCE="https://xFloorMCPTest",
+            XFLOOR_OAUTH_RESOURCE="https://resource.example",
         )
     )
     client = TestClient(app)
-    token = _encode_stub_jwt({"iss": "https://issuer.example/", "sub": "auth0|same-user"})
+    token = "auth0-token"
 
     first = client.post("/mcp", headers={"Authorization": f"Bearer {token}"}, json={"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}})
     second = client.post("/mcp", headers={"Authorization": f"Bearer {token}"}, json={"jsonrpc": "2.0", "id": 2, "method": "initialize", "params": {}})
@@ -707,22 +770,27 @@ def test_http_middleware_oauth_mode_rejects_missing_token(monkeypatch: pytest.Mo
         Settings(
             XFLOOR_BASE_URL="https://appfloor.in",
             XFLOOR_AUTH_MODE="oauth",
-            XFLOOR_OAUTH_STUB_ENABLED=True,
             XFLOOR_DEFAULT_APP_ID="fallback-app",
+            XFLOOR_AUTH0_ISSUER="https://example.auth0.com/",
+            XFLOOR_AUTH0_AUDIENCE="https://xFloorMCPTest",
+            XFLOOR_OAUTH_RESOURCE="https://resource.example",
         )
     )
     client = TestClient(app)
     response = client.post("/mcp", json={"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}})
     assert response.status_code == 401
     assert "Missing bearer token" in response.json()["error"]
+    assert "WWW-Authenticate" in response.headers
+    assert 'resource_metadata="' in response.headers["WWW-Authenticate"]
 
 
 @pytest.mark.skipif(not (HAS_DEPS and HAS_FASTAPI), reason="requires fastapi + runtime deps")
-def test_http_middleware_oauth_mode_rejects_missing_stub_identity(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_http_middleware_oauth_mode_rejects_invalid_token_with_bearer_challenge(monkeypatch: pytest.MonkeyPatch) -> None:
     from fastapi import FastAPI
     from fastapi.responses import JSONResponse
     from fastapi.testclient import TestClient
 
+    from xfloor_mcp.auth.oauth import OAuthResolutionError
     from xfloor_mcp.server_http import create_http_app
     from xfloor_mcp.settings import Settings
 
@@ -734,23 +802,55 @@ def test_http_middleware_oauth_mode_rejects_missing_stub_identity(monkeypatch: p
     debug_app = FastAPI()
     debug_app.add_api_route("/{path:path}", debug_context, methods=["GET", "POST"])
     monkeypatch.setattr("xfloor_mcp.server_http._build_mcp_app", lambda mcp: debug_app)
+    monkeypatch.setattr(
+        "xfloor_mcp.auth.oauth._verify_auth0_access_token",
+        lambda token, settings: (_ for _ in ()).throw(OAuthResolutionError("Invalid bearer token: signature verification failed", status_code=401)),
+    )
 
     app = create_http_app(
         Settings(
             XFLOOR_BASE_URL="https://appfloor.in",
             XFLOOR_AUTH_MODE="oauth",
-            XFLOOR_OAUTH_STUB_ENABLED=True,
             XFLOOR_DEFAULT_APP_ID="fallback-app",
+            XFLOOR_AUTH0_ISSUER="https://example.auth0.com/",
+            XFLOOR_AUTH0_AUDIENCE="https://xFloorMCPTest",
+            XFLOOR_OAUTH_RESOURCE="https://resource.example",
         )
     )
     client = TestClient(app)
     response = client.post(
         "/mcp",
-        headers={"Authorization": "Bearer not-a-jwt"},
+        headers={"Authorization": "Bearer invalid-token"},
         json={"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}},
     )
     assert response.status_code == 401
-    assert "Unable to resolve OAuth identity" in response.json()["error"]
+    assert "Invalid bearer token" in response.json()["error"]
+    assert "WWW-Authenticate" in response.headers
+
+
+@pytest.mark.skipif(not (HAS_DEPS and HAS_FASTAPI), reason="requires fastapi + runtime deps")
+def test_oauth_protected_resource_metadata_endpoint_returns_expected_values() -> None:
+    from fastapi.testclient import TestClient
+
+    from xfloor_mcp.server_http import create_http_app
+    from xfloor_mcp.settings import Settings
+
+    app = create_http_app(
+        Settings(
+            XFLOOR_BASE_URL="https://appfloor.in",
+            XFLOOR_AUTH_MODE="oauth",
+            XFLOOR_AUTH0_ISSUER="https://dev-aobq6ntuhxzmcu6j.jp.auth0.com/",
+            XFLOOR_AUTH0_AUDIENCE="https://xFloorMCPTest",
+            XFLOOR_OAUTH_RESOURCE="https://demo.ngrok-free.app",
+        )
+    )
+
+    client = TestClient(app)
+    response = client.get("/.well-known/oauth-protected-resource")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["resource"] == "https://demo.ngrok-free.app"
+    assert payload["authorization_servers"] == ["https://dev-aobq6ntuhxzmcu6j.jp.auth0.com/"]
 
 
 @pytest.mark.skipif(not HAS_DEPS, reason="requires pydantic/httpx")
