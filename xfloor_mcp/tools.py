@@ -11,7 +11,7 @@ from typing import Any
 from pydantic import BaseModel, Field, field_validator
 
 from .active_floor_state import get_active_floor_state, resolve_floor_reference, set_active_floor_state
-from .chatgpt_files import download_chatgpt_attachments
+from .chatgpt_files import AttachmentBridgeError, download_chatgpt_attachments
 from .request_context import get_active_floor_id, get_auth_mode, get_auth_token, get_user_id, get_xfloor_service_token
 from .xfloor_client import XFloorClient
 
@@ -35,8 +35,11 @@ class XFloorFileInput(BaseModel):
 
 
 class XFloorChatGPTAttachmentInput(BaseModel):
-    download_url: str = Field(description="ChatGPT attachment download URL")
-    file_id: str = Field(description="ChatGPT file identifier")
+    download_url: str | None = Field(default=None, description="ChatGPT attachment download URL")
+    file_id: str | None = Field(default=None, description="ChatGPT file identifier")
+
+
+XFloorChatGPTAttachmentParam = XFloorChatGPTAttachmentInput | str
 
 
 class XFloorCreateEventInput(BaseModel):
@@ -106,11 +109,11 @@ class XFloorPostEventToCurrentFloorInput(BaseModel):
         default=None,
         description="Optional media attachments: up to 4 PNG/JPEG images OR exactly 1 video OR exactly 1 PDF.",
     )
-    attachment: XFloorChatGPTAttachmentInput | None = Field(
+    attachment: XFloorChatGPTAttachmentParam | None = Field(
         default=None,
         description="Optional single ChatGPT file param (top-level).",
     )
-    attachments: list[XFloorChatGPTAttachmentInput] | None = Field(
+    attachments: list[XFloorChatGPTAttachmentParam] | None = Field(
         default=None,
         description="Optional multiple ChatGPT file params (top-level).",
     )
@@ -413,10 +416,33 @@ def register_tools(mcp: Any, client: XFloorClient) -> None:
             payload["end_time"] = input.end_time
 
         input_info = json.dumps(payload)
-        chatgpt_files_payload, attachment_file_ids, attachment_filenames = await download_chatgpt_attachments(
-            input.attachment.model_dump() if input.attachment else None,
-            [item.model_dump() for item in input.attachments] if input.attachments else None,
-        )
+        def _to_attachment_payload(item: XFloorChatGPTAttachmentParam) -> dict[str, Any] | str:
+            if isinstance(item, str):
+                return item
+            return item.model_dump()
+
+        attachment_input_present = input.attachment is not None or bool(input.attachments)
+        try:
+            chatgpt_files_payload, attachment_file_ids, attachment_filenames = await download_chatgpt_attachments(
+                _to_attachment_payload(input.attachment) if input.attachment is not None else None,
+                [_to_attachment_payload(item) for item in input.attachments] if input.attachments else None,
+            )
+        except AttachmentBridgeError as exc:
+            if attachment_input_present:
+                return {
+                    "floor_id": floor["floor_id"],
+                    "floor_ref": floor["floor_ref"],
+                    "floor_source": floor["source"],
+                    "accepted": False,
+                    "posted": False,
+                    "status": "failed",
+                    "verification_required": False,
+                    "attachment_bridge_failed": True,
+                    "attachments_received": 0,
+                    "message": "Attachment was provided, but the MCP file bridge could not convert it for xFloor upload.",
+                    "error": str(exc),
+                }
+            raise
         combined_files: list[XFloorFileInput] | None = None
         if input.files or chatgpt_files_payload:
             base_files = input.files or []

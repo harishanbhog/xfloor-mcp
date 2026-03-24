@@ -277,7 +277,8 @@ This repo now exposes an additive **v1 ChatGPT-facing MCP surface** on top of th
    - ChatGPT file attachments are supported via top-level file params:
      - `attachment` (single `{download_url, file_id}`)
      - `attachments` (multiple `[{download_url, file_id}, ...]`)
-   - MCP downloads those files and forwards them to xFloor using the existing multipart upload path.
+   - Primary path: MCP downloads official file params via `download_url`, converts them to `filename/content_base64/mime_type`, and forwards to xFloor multipart upload.
+   - Dev fallback only: if a local path-style attachment reference is provided (for example `/mnt/data/file.jpg`) and readable in the MCP runtime, MCP can read and convert it; this is not the preferred integration contract.
 
 ### Active-floor precedence rules
 
