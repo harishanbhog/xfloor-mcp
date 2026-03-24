@@ -92,6 +92,10 @@ class XFloorPostEventToCurrentFloorInput(BaseModel):
     start_time: str | None = Field(default=None, description="Optional start time")
     end_date: str | None = Field(default=None, description="Optional end date")
     end_time: str | None = Field(default=None, description="Optional end time")
+    files: list[XFloorFileInput] | None = Field(
+        default=None,
+        description="Optional media attachments: up to 4 PNG/JPEG images OR exactly 1 video OR exactly 1 PDF.",
+    )
 
 
 def _extract_auth_token(ctx: Any, token_override: str | None) -> str:
@@ -172,6 +176,41 @@ def _extract_events_list(events_payload: dict[str, Any]) -> list[dict[str, Any]]
         if isinstance(candidate, list):
             return [event for event in candidate if isinstance(event, dict)]
     return []
+
+
+def _validate_post_event_attachments(files: list[XFloorFileInput] | None) -> list[dict[str, str]] | None:
+    if not files:
+        return None
+
+    images: list[XFloorFileInput] = []
+    videos: list[XFloorFileInput] = []
+    pdfs: list[XFloorFileInput] = []
+
+    for file in files:
+        mime = (file.mime_type or "").strip().lower()
+        if mime in {"image/png", "image/jpeg", "image/jpg"}:
+            images.append(file)
+        elif mime.startswith("video/"):
+            videos.append(file)
+        elif mime == "application/pdf":
+            pdfs.append(file)
+        else:
+            raise ValueError(
+                "Unsupported attachment type. Allowed: PNG/JPEG images, one video, or one PDF."
+            )
+
+    groups_present = sum(1 for group in (images, videos, pdfs) if group)
+    if groups_present > 1:
+        raise ValueError("Attachments must be either images OR one video OR one PDF (do not mix types).")
+
+    if images and len(images) > 4:
+        raise ValueError("You can attach up to 4 images (PNG/JPEG).")
+    if videos and len(videos) != 1:
+        raise ValueError("You can attach exactly 1 video.")
+    if pdfs and len(pdfs) != 1:
+        raise ValueError("You can attach exactly 1 PDF.")
+
+    return [file.model_dump() for file in files]
 
 
 def register_tools(mcp: Any, client: XFloorClient) -> None:
@@ -343,7 +382,8 @@ def register_tools(mcp: Any, client: XFloorClient) -> None:
             payload["end_time"] = input.end_time
 
         input_info = json.dumps(payload)
-        result = await client.create_event(token, input_info=input_info, files=None)
+        files_payload = _validate_post_event_attachments(input.files)
+        result = await client.create_event(token, input_info=input_info, files=files_payload)
         compact_result = _compact(result)
         result_text = json.dumps(compact_result).lower()
         queued = "submitted to queue" in result_text or "submitted to the queue" in result_text or '"queued"' in result_text
@@ -368,6 +408,7 @@ def register_tools(mcp: Any, client: XFloorClient) -> None:
                 "start_time": input.start_time,
                 "end_date": input.end_date,
                 "end_time": input.end_time,
+                "attachments_count": len(files_payload or []),
             },
             "result": compact_result,
         }

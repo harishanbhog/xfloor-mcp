@@ -37,6 +37,7 @@ if HAS_DEPS:
     from xfloor_mcp.settings import Settings
     from xfloor_mcp.tools import (
         XFloorCreateEventInput,
+        XFloorFileInput,
         XFloorGetCurrentFloorEventsInput,
         XFloorGetFloorInfoInput,
         XFloorPostEventToCurrentFloorInput,
@@ -326,6 +327,93 @@ class TestToolsSmoke:
         assert result["status"] == "queued"
         assert result["message"] == "Event submission accepted and queued."
         assert result["event"]["block_id"] == "chatgpt"
+
+    @pytest.mark.asyncio
+    async def test_post_event_to_current_floor_forwards_valid_image_attachments(self) -> None:
+        mcp = self._FakeMCP()
+        set_auth_token("ctx-token")
+        set_user_id("ctx-user")
+        set_app_id("ctx-app")
+        set_active_floor_id(None)
+
+        class _FakeClient:
+            async def create_event(self, token: str, **kwargs: Any) -> dict[str, Any]:
+                files = kwargs["files"]
+                assert isinstance(files, list)
+                assert len(files) == 2
+                assert files[0]["mime_type"] == "image/png"
+                assert files[1]["mime_type"] == "image/jpeg"
+                return {"ok": True}
+
+        register_tools(mcp=mcp, client=_FakeClient())
+        await mcp.registry["xfloor_set_active_floor"](XFloorSetActiveFloorInput(floor_ref="@phari"), None)
+
+        result = await mcp.registry["xfloor_post_event_to_current_floor"](
+            XFloorPostEventToCurrentFloorInput(
+                title="Luminous UPS now",
+                description="Attached product photos",
+                files=[
+                    XFloorFileInput(filename="a.png", content_base64="aGVsbG8=", mime_type="image/png"),
+                    XFloorFileInput(filename="b.jpg", content_base64="aGVsbG8=", mime_type="image/jpeg"),
+                ],
+            ),
+            None,
+        )
+        assert result["posted"] is True
+        assert result["event"]["attachments_count"] == 2
+
+    @pytest.mark.asyncio
+    async def test_post_event_to_current_floor_rejects_invalid_attachment_mix(self) -> None:
+        mcp = self._FakeMCP()
+        set_auth_token("ctx-token")
+        set_user_id("ctx-user")
+        set_app_id("ctx-app")
+        set_active_floor_id(None)
+
+        class _FakeClient:
+            async def create_event(self, token: str, **kwargs: Any) -> dict[str, Any]:
+                return {"ok": True}
+
+        register_tools(mcp=mcp, client=_FakeClient())
+        await mcp.registry["xfloor_set_active_floor"](XFloorSetActiveFloorInput(floor_ref="@phari"), None)
+
+        with pytest.raises(ValueError, match="do not mix types"):
+            await mcp.registry["xfloor_post_event_to_current_floor"](
+                XFloorPostEventToCurrentFloorInput(
+                    title="Mixed",
+                    description="bad",
+                    files=[
+                        XFloorFileInput(filename="a.png", content_base64="aGVsbG8=", mime_type="image/png"),
+                        XFloorFileInput(filename="a.pdf", content_base64="aGVsbG8=", mime_type="application/pdf"),
+                    ],
+                ),
+                None,
+            )
+
+    @pytest.mark.asyncio
+    async def test_post_event_to_current_floor_rejects_too_many_images(self) -> None:
+        mcp = self._FakeMCP()
+        set_auth_token("ctx-token")
+        set_user_id("ctx-user")
+        set_app_id("ctx-app")
+        set_active_floor_id(None)
+
+        class _FakeClient:
+            async def create_event(self, token: str, **kwargs: Any) -> dict[str, Any]:
+                return {"ok": True}
+
+        register_tools(mcp=mcp, client=_FakeClient())
+        await mcp.registry["xfloor_set_active_floor"](XFloorSetActiveFloorInput(floor_ref="@phari"), None)
+
+        files = [
+            XFloorFileInput(filename=f"{idx}.png", content_base64="aGVsbG8=", mime_type="image/png")
+            for idx in range(5)
+        ]
+        with pytest.raises(ValueError, match="up to 4 images"):
+            await mcp.registry["xfloor_post_event_to_current_floor"](
+                XFloorPostEventToCurrentFloorInput(title="Too many", description="bad", files=files),
+                None,
+            )
 
     @pytest.mark.asyncio
     async def test_real_oauth_verifier_uses_auth0_metadata_and_claims(self, monkeypatch: pytest.MonkeyPatch) -> None:
