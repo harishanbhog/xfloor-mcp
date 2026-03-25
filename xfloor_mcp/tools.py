@@ -385,10 +385,15 @@ def register_tools(mcp: Any, client: XFloorClient) -> None:
     """Register MCP tools on the provided FastMCP instance."""
     query_widget_uri = "ui://widget/query-results-v1.html"
     tool_signature = inspect.signature(mcp.tool)
-    supports_meta = "_meta" in tool_signature.parameters or any(
-        param.kind == inspect.Parameter.VAR_KEYWORD for param in tool_signature.parameters.values()
+    supports_var_kwargs = any(param.kind == inspect.Parameter.VAR_KEYWORD for param in tool_signature.parameters.values())
+    supports_meta = "_meta" in tool_signature.parameters or supports_var_kwargs
+    supports_meta_alias = "meta" in tool_signature.parameters
+    logger.info(
+        "Query widget setup: tool_supports_meta=%s tool_supports_meta_alias=%s tool_supports_var_kwargs=%s",
+        supports_meta,
+        supports_meta_alias,
+        supports_var_kwargs,
     )
-    logger.info("Query widget setup: tool_supports_meta=%s", supports_meta)
 
     def _register_query_widget_resource() -> None:
         if not hasattr(mcp, "resource"):
@@ -502,12 +507,16 @@ def register_tools(mcp: Any, client: XFloorClient) -> None:
         "name": "xfloor_query_current_floor",
         "description": "Use this when the user wants to ask a question about the currently active xFloor. This tool uses the active floor selected by xfloor_set_active_floor, with the request header acting only as an optional override/debug path.",
     }
+    widget_descriptor_meta = {
+        "ui": {"resourceUri": query_widget_uri},
+        "openai/outputTemplate": query_widget_uri,
+    }
     if supports_meta:
-        _query_tool_kwargs["_meta"] = {
-            "ui": {"resourceUri": query_widget_uri},
-            "openai/outputTemplate": query_widget_uri,
-        }
-        logger.info("Query tool descriptor linked to widget uri=%s", query_widget_uri)
+        _query_tool_kwargs["_meta"] = widget_descriptor_meta
+        logger.info("Query tool descriptor linked via _meta uri=%s", query_widget_uri)
+    elif supports_meta_alias:
+        _query_tool_kwargs["meta"] = widget_descriptor_meta
+        logger.info("Query tool descriptor linked via meta alias uri=%s", query_widget_uri)
     else:
         logger.info("Query tool descriptor widget link skipped: _meta unsupported in this MCP runtime")
 
@@ -560,10 +569,13 @@ def register_tools(mcp: Any, client: XFloorClient) -> None:
             "structuredContent": structured_content,
             "_meta": {
                 "ui_rendering_mode": "widget_with_text_fallback",
+                "ui": {"resourceUri": query_widget_uri},
+                "openai/outputTemplate": query_widget_uri,
                 "widget_debug": {
                     "query_widget_uri": query_widget_uri,
                     "tool_supports_meta": supports_meta,
-                    "tool_widget_linked": supports_meta,
+                    "tool_supports_meta_alias": supports_meta_alias,
+                    "tool_widget_linked": bool(supports_meta or supports_meta_alias),
                     "relevant_floor_count": structured_content["resultCount"],
                 },
                 "queryWidgetPayload": {

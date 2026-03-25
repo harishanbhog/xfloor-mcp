@@ -395,6 +395,7 @@ class TestToolsSmoke:
         assert query_result["_meta"]["ui_rendering_mode"] == "widget_with_text_fallback"
         assert query_result["_meta"]["widget_debug"]["query_widget_uri"] == "ui://widget/query-results-v1.html"
         assert query_result["_meta"]["widget_debug"]["relevant_floor_count"] == 1
+        assert "ui" in query_result["_meta"]
         assert post_result["posted"] is True
 
     @pytest.mark.asyncio
