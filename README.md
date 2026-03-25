@@ -297,6 +297,20 @@ This repo now exposes an additive **v1 ChatGPT-facing MCP surface** on top of th
 - Widget-capable app surfaces can render tiny chips from `structuredContent.relevantFloors` and call `xfloor_set_active_floor`.
 - Remote MCP tool callers still get a compact text fallback listing related floors with switch-floor guidance.
 
+### Query widget troubleshooting logs
+
+When debugging why chips/widget are not visible, check server logs for:
+- `Query widget setup: tool_supports_meta=...`
+- `Query widget registration attempt ...` and success/fallback signature messages
+- `Query tool descriptor linked to widget ...` (or `_meta unsupported`)
+- `Query widget payload generated ...`
+
+The query tool result `_meta.widget_debug` also includes:
+- `query_widget_uri`
+- `tool_supports_meta`
+- `tool_widget_linked`
+- `relevant_floor_count`
+
 ### Active-floor precedence rules
 
 Current-floor tools resolve the floor in this order:

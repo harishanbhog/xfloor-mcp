@@ -388,22 +388,27 @@ def register_tools(mcp: Any, client: XFloorClient) -> None:
     supports_meta = "_meta" in tool_signature.parameters or any(
         param.kind == inspect.Parameter.VAR_KEYWORD for param in tool_signature.parameters.values()
     )
+    logger.info("Query widget setup: tool_supports_meta=%s", supports_meta)
 
     def _register_query_widget_resource() -> None:
         if not hasattr(mcp, "resource"):
+            logger.info("Query widget registration skipped: mcp.resource not available")
             return
         html = _build_query_results_widget_html()
+        logger.info("Query widget registration attempt uri=%s", query_widget_uri)
         try:
             @mcp.resource(query_widget_uri, name="xfloor-query-results-v1", mime_type="text/html")
             async def _query_widget() -> str:
                 return html
+            logger.info("Query widget registration success via named signature")
             return
         except TypeError:
-            pass
+            logger.info("Query widget named signature unsupported; trying uri-only signature")
         try:
             @mcp.resource(query_widget_uri)
             async def _query_widget_uri_only() -> str:
                 return html
+            logger.info("Query widget registration success via uri-only signature")
         except TypeError:
             logger.info("Query widget resource registration skipped due to incompatible runtime signature")
 
@@ -502,6 +507,9 @@ def register_tools(mcp: Any, client: XFloorClient) -> None:
             "ui": {"resourceUri": query_widget_uri},
             "openai/outputTemplate": query_widget_uri,
         }
+        logger.info("Query tool descriptor linked to widget uri=%s", query_widget_uri)
+    else:
+        logger.info("Query tool descriptor widget link skipped: _meta unsupported in this MCP runtime")
 
     @mcp.tool(**_query_tool_kwargs)
     async def xfloor_query_current_floor(input: XFloorQueryCurrentFloorInput, ctx: Any = None) -> dict[str, Any]:
@@ -530,6 +538,11 @@ def register_tools(mcp: Any, client: XFloorClient) -> None:
             structured_content["resultCount"],
             widget_meta["malformedItemTextCount"],
         )
+        logger.info(
+            "Query widget payload generated widget_uri=%s fallback_mode=%s",
+            query_widget_uri,
+            "widget_with_text_fallback",
+        )
         answer_text = structured_content.get("answer") or "Here’s what I found."
         floor_lines: list[str] = []
         for floor_item in structured_content["relevantFloors"][:5]:
@@ -547,6 +560,12 @@ def register_tools(mcp: Any, client: XFloorClient) -> None:
             "structuredContent": structured_content,
             "_meta": {
                 "ui_rendering_mode": "widget_with_text_fallback",
+                "widget_debug": {
+                    "query_widget_uri": query_widget_uri,
+                    "tool_supports_meta": supports_meta,
+                    "tool_widget_linked": supports_meta,
+                    "relevant_floor_count": structured_content["resultCount"],
+                },
                 "queryWidgetPayload": {
                     "resourceUri": query_widget_uri,
                     "resultCount": structured_content["resultCount"],
