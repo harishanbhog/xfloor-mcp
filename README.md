@@ -279,6 +279,7 @@ This repo now exposes an additive **v1 ChatGPT-facing MCP surface** on top of th
 5. `xfloor_post_event_with_attachment_to_current_floor`
    - Post an event with exactly **one** official ChatGPT attachment.
    - Top-level attachment field only: `attachment`.
+   - Proxied-mount fallback field: `attachment_path` (plain local path string) if file-arg rewrite fails before tool invocation.
    - `attachment` may be either:
      - local uploaded file path string in this runtime (e.g. `/mnt/data/luminous.jpg`), or
      - local path object `{ "path": "/mnt/data/..." }` (or `file_path`), or

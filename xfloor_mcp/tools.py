@@ -501,7 +501,7 @@ def register_tools(mcp: Any, client: XFloorClient) -> None:
 
     _post_event_attachment_tool_kwargs: dict[str, Any] = {
         "name": "xfloor_post_event_with_attachment_to_current_floor",
-        "description": "Use this when the user explicitly wants to create/post an event with one attached image or PDF in the currently active xFloor. Put the uploaded file only in top-level `attachment`. `attachment` may be either: (1) local uploaded file path string, (2) local path object (`path`/`file_path`), or (3) official ChatGPT file param object (`download_url`, `file_id`). Do not invent base64, image_url/image_path, or alternate attachment fields.",
+        "description": "Use this when the user explicitly wants to create/post an event with one attached image or PDF in the currently active xFloor. Preferred: put the uploaded file in top-level `attachment` (official file param object). Runtime fallback: if file-arg rewrite fails in proxied mounts, pass a plain local path in `attachment_path`. Do not invent base64, image_url/image_path, or alternate attachment fields.",
     }
     tool_signature = inspect.signature(mcp.tool)
     if "_meta" in tool_signature.parameters:
@@ -510,7 +510,8 @@ def register_tools(mcp: Any, client: XFloorClient) -> None:
     @mcp.tool(**_post_event_attachment_tool_kwargs)
     async def xfloor_post_event_with_attachment_to_current_floor(
         description: str,
-        attachment: XFloorHybridAttachmentParam,
+        attachment: XFloorHybridAttachmentParam | None = None,
+        attachment_path: str | None = None,
         title: str | None = None,
         block_id: str | None = None,
         block_type: str | None = "note",
@@ -522,7 +523,10 @@ def register_tools(mcp: Any, client: XFloorClient) -> None:
         ctx: Any = None,
     ) -> dict[str, Any]:
         logger.info("xfloor_post_event_with_attachment_to_current_floor invoked")
-        logger.info("Attachment input kind=%s", "local_path" if isinstance(attachment, str) else "official_object")
+        if attachment_path and attachment_path.strip():
+            logger.info("Attachment input kind=attachment_path")
+        else:
+            logger.info("Attachment input kind=%s", "local_path" if isinstance(attachment, str) else "official_object")
         token = _extract_auth_token(ctx, None)
         floor = _resolve_active_floor_id()
         user_id = _require_context_user_id()
@@ -549,12 +553,16 @@ def register_tools(mcp: Any, client: XFloorClient) -> None:
 
         try:
             raw_attachment: dict[str, Any] | str
-            if isinstance(attachment, str):
+            if attachment_path and attachment_path.strip():
+                raw_attachment = attachment_path.strip()
+            elif isinstance(attachment, str):
                 raw_attachment = attachment
             elif isinstance(attachment, dict):
                 raw_attachment = XFloorChatGPTAttachmentInput(**attachment).model_dump()
-            else:
+            elif attachment is not None:
                 raw_attachment = attachment.model_dump()
+            else:
+                raise AttachmentBridgeError("Missing attachment. Provide `attachment` or fallback `attachment_path`.")
             chatgpt_files_payload, attachment_file_ids, attachment_filenames = await download_chatgpt_attachments(
                 raw_attachment,
                 None,
@@ -612,7 +620,7 @@ def register_tools(mcp: Any, client: XFloorClient) -> None:
         logger.info("Downstream xFloor upload invoked for attachment tool")
         compact_result = _compact(result)
         status, message = _queued_status(compact_result)
-        attachment_source = "local_path" if isinstance(attachment, str) else "download_url"
+        attachment_source = "local_path" if (attachment_path and attachment_path.strip()) or isinstance(attachment, str) else "download_url"
 
         return {
             "floor_id": floor["floor_id"],
