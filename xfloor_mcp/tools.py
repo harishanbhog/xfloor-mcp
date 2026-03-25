@@ -340,6 +340,12 @@ async def _resolve_attachment_input(
 def register_tools(mcp: Any, client: XFloorClient) -> None:
     """Register MCP tools on the provided FastMCP instance."""
 
+    def _tool_supports_kwarg(name: str) -> bool:
+        sig = inspect.signature(mcp.tool)
+        if name in sig.parameters:
+            return True
+        return any(param.kind == inspect.Parameter.VAR_KEYWORD for param in sig.parameters.values())
+
     @mcp.tool(name="xfloor_query_memory", description="Query xFloor memory")
     async def xfloor_query_memory(input: XFloorQueryMemoryInput, ctx: Any = None) -> dict[str, Any]:
         token = _extract_auth_token(ctx, input.auth_token)
@@ -538,9 +544,9 @@ def register_tools(mcp: Any, client: XFloorClient) -> None:
         "description": "Use this when the user explicitly wants to create/post an event with one attached image or PDF in the currently active xFloor. Pass the uploaded file in top-level `attachment` only. In this runtime, `attachment` may be a rewritten local file path string or an official object (`download_url`, `file_id`). Do not use nested wrappers like `{path: ...}`. Do not invent base64, image_url, or image_path.",
     }
     tool_signature = inspect.signature(mcp.tool)
-    if "_meta" in tool_signature.parameters:
+    if _tool_supports_kwarg("_meta"):
         _post_event_attachment_tool_kwargs["_meta"] = {"openai/fileParams": ["attachment"]}
-    if "file_arg_rewrite_paths" in tool_signature.parameters:
+    if _tool_supports_kwarg("file_arg_rewrite_paths"):
         _post_event_attachment_tool_kwargs["file_arg_rewrite_paths"] = ["attachment"]
 
     @mcp.tool(**_post_event_attachment_tool_kwargs)
@@ -561,7 +567,7 @@ def register_tools(mcp: Any, client: XFloorClient) -> None:
         logger.info("Attachment input kind=%s", "local_path" if isinstance(attachment, str) else "official_object")
         logger.info(
             "Attachment rewrite config active=%s proxied_mounts_detected=%s",
-            "file_arg_rewrite_paths" in tool_signature.parameters,
+            "file_arg_rewrite_paths" in _post_event_attachment_tool_kwargs,
             "unknown",
         )
         token = _extract_auth_token(ctx, None)
