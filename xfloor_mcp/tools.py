@@ -9,7 +9,7 @@ import mimetypes
 import os
 from typing import Any
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from .active_floor_state import get_active_floor_state, resolve_floor_reference, set_active_floor_state
 from .chatgpt_files import AttachmentBridgeError, download_chatgpt_attachments
@@ -38,11 +38,12 @@ class XFloorFileInput(BaseModel):
 
 
 class XFloorChatGPTAttachmentInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     download_url: str | None = Field(default=None, description="ChatGPT attachment download URL")
     file_id: str | None = Field(default=None, description="ChatGPT file identifier")
 
 
-XFloorChatGPTAttachmentParam = XFloorChatGPTAttachmentInput | str
+XFloorChatGPTAttachmentParam = XFloorChatGPTAttachmentInput
 
 
 class XFloorCreateEventInput(BaseModel):
@@ -99,6 +100,7 @@ class XFloorGetCurrentFloorEventsInput(BaseModel):
 
 
 class XFloorPostEventToCurrentFloorInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     title: str | None = Field(default=None, description="Optional short event title. If omitted, description will be used as title.")
     description: str = Field(description="Event details or body text")
     block_id: str | None = Field(default=None, description="Optional logical block identifier for the event")
@@ -108,17 +110,21 @@ class XFloorPostEventToCurrentFloorInput(BaseModel):
     start_time: str | None = Field(default=None, description="Optional start time")
     end_date: str | None = Field(default=None, description="Optional end date")
     end_time: str | None = Field(default=None, description="Optional end time")
-    files: list[XFloorFileInput] | None = Field(
-        default=None,
-        description="Optional media attachments: up to 4 PNG/JPEG images OR exactly 1 video OR exactly 1 PDF.",
-    )
-    attachment: XFloorChatGPTAttachmentParam | None = Field(
-        default=None,
-        description="Optional single official ChatGPT file param object ({download_url, file_id}).",
-    )
-    attachments: list[XFloorChatGPTAttachmentParam] | None = Field(
-        default=None,
-        description="Optional multiple official ChatGPT file param objects (top-level).",
+    
+
+class XFloorPostEventWithAttachmentToCurrentFloorInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    title: str | None = Field(default=None, description="Optional short event title. If omitted, description will be used as title.")
+    description: str = Field(description="Event details or body text")
+    block_id: str | None = Field(default=None, description="Optional logical block identifier for the event")
+    block_type: str | None = Field(default="note", description="Optional block type")
+    location: str | None = Field(default=None, description="Optional event location")
+    start_date: str | None = Field(default=None, description="Optional start date")
+    start_time: str | None = Field(default=None, description="Optional start time")
+    end_date: str | None = Field(default=None, description="Optional end date")
+    end_time: str | None = Field(default=None, description="Optional end time")
+    attachment: XFloorChatGPTAttachmentParam = Field(
+        description="Single official ChatGPT file param object ({download_url, file_id}).",
     )
 
 
@@ -245,9 +251,52 @@ def _validate_post_event_attachments(files: list[XFloorFileInput] | None) -> lis
     return [file.model_dump() for file in files]
 
 
-def _local_path_fallback_enabled() -> bool:
-    value = os.getenv("XFLOOR_CHATGPT_ATTACHMENT_LOCAL_PATH_FALLBACK", "false").strip().lower()
-    return value in {"1", "true", "yes", "on"}
+def _build_post_event_payload(
+    *,
+    floor_id: str,
+    user_id: str,
+    title: str | None,
+    description: str,
+    block_id: str | None,
+    block_type: str | None,
+    location: str | None,
+    start_date: str | None,
+    start_time: str | None,
+    end_date: str | None,
+    end_time: str | None,
+) -> tuple[dict[str, Any], str | None]:
+    normalized_title = title.strip() if title and title.strip() else description
+    normalized_block_id = block_id.strip() if block_id and block_id.strip() else None
+
+    payload: dict[str, Any] = {
+        "floor_id": floor_id,
+        "user_id": user_id,
+        "title": normalized_title,
+        "description": description,
+    }
+    if normalized_block_id:
+        payload["block_id"] = normalized_block_id
+    if block_type:
+        payload["block_type"] = block_type
+    if location:
+        payload["location"] = location
+    if start_date:
+        payload["start_date"] = start_date
+    if start_time:
+        payload["start_time"] = start_time
+    if end_date:
+        payload["end_date"] = end_date
+    if end_time:
+        payload["end_time"] = end_time
+    return payload, normalized_block_id
+
+
+def _queued_status(compact_result: dict[str, Any]) -> tuple[str, str]:
+    result_text = json.dumps(compact_result).lower()
+    queued = "submitted to queue" in result_text or "submitted to the queue" in result_text or '"queued"' in result_text
+    status = "queued" if queued else "accepted"
+    message = "Event submission accepted and queued." if queued else "Event submission accepted."
+    return status, message
 
 
 def register_tools(mcp: Any, client: XFloorClient) -> None:
@@ -385,93 +434,40 @@ def register_tools(mcp: Any, client: XFloorClient) -> None:
             "events": events,
         }
 
-    _post_event_tool_kwargs: dict[str, Any] = {
-        "name": "xfloor_post_event_to_current_floor",
-        "description": "Use this when the user explicitly wants to create/post an event in the currently active xFloor. If the user attached files in chat, pass them only through top-level file params `attachment`/`attachments` with official ChatGPT file objects (`download_url`, `file_id`). Do not invent local file paths, base64 payloads, image_url/image_path, or other substitutes. If official file params are unavailable, do not guess; the tool returns a clear attachment bridge failure. Queue acceptance is considered success for this tool.",
-    }
-    tool_signature = inspect.signature(mcp.tool)
-    if "_meta" in tool_signature.parameters:
-        _post_event_tool_kwargs["_meta"] = {"openai/fileParams": ["attachment", "attachments"]}
-
-    @mcp.tool(**_post_event_tool_kwargs)
+    @mcp.tool(
+        name="xfloor_post_event_to_current_floor",
+        description="Use this when the user explicitly wants to create/post a text-only event in the currently active xFloor. Do not use this tool for media attachments. If the user attached media, use `xfloor_post_event_with_attachment_to_current_floor`.",
+    )
     async def xfloor_post_event_to_current_floor(input: XFloorPostEventToCurrentFloorInput, ctx: Any = None) -> dict[str, Any]:
+        logger.info("xfloor_post_event_to_current_floor invoked (text-only)")
         token = _extract_auth_token(ctx, None)
         floor = _resolve_active_floor_id()
         user_id = _require_context_user_id()
+        logger.info(
+            "Downstream auth path auth_mode=%s using_service_token=%s",
+            get_auth_mode() or "unknown",
+            bool(get_xfloor_service_token()),
+        )
 
-        normalized_title = input.title.strip() if input.title and input.title.strip() else input.description
-        normalized_block_id = input.block_id.strip() if input.block_id and input.block_id.strip() else None
-
-        payload: dict[str, Any] = {
-            "floor_id": floor["floor_id"],
-            "user_id": user_id,
-            "title": normalized_title,
-            "description": input.description,
-        }
-        if normalized_block_id:
-            payload["block_id"] = normalized_block_id
-        if input.block_type:
-            payload["block_type"] = input.block_type
-        if input.location:
-            payload["location"] = input.location
-        if input.start_date:
-            payload["start_date"] = input.start_date
-        if input.start_time:
-            payload["start_time"] = input.start_time
-        if input.end_date:
-            payload["end_date"] = input.end_date
-        if input.end_time:
-            payload["end_time"] = input.end_time
+        payload, normalized_block_id = _build_post_event_payload(
+            floor_id=floor["floor_id"],
+            user_id=user_id,
+            title=input.title,
+            description=input.description,
+            block_id=input.block_id,
+            block_type=input.block_type,
+            location=input.location,
+            start_date=input.start_date,
+            start_time=input.start_time,
+            end_date=input.end_date,
+            end_time=input.end_time,
+        )
+        normalized_title = payload["title"]
 
         input_info = json.dumps(payload)
-        def _to_attachment_payload(item: XFloorChatGPTAttachmentParam) -> dict[str, Any] | str:
-            if isinstance(item, str):
-                return item
-            return item.model_dump()
-
-        attachment_input_present = input.attachment is not None or bool(input.attachments)
-        allow_local_fallback = _local_path_fallback_enabled()
-        logger.info(
-            "Attachment bridge request: attachment_input_present=%s local_path_fallback_enabled=%s",
-            attachment_input_present,
-            allow_local_fallback,
-        )
-        try:
-            chatgpt_files_payload, attachment_file_ids, attachment_filenames = await download_chatgpt_attachments(
-                _to_attachment_payload(input.attachment) if input.attachment is not None else None,
-                [_to_attachment_payload(item) for item in input.attachments] if input.attachments else None,
-                allow_local_path_fallback=allow_local_fallback,
-            )
-        except AttachmentBridgeError as exc:
-            logger.info("Attachment bridge failure type=%s", exc.__class__.__name__)
-            if attachment_input_present:
-                return {
-                    "floor_id": floor["floor_id"],
-                    "floor_ref": floor["floor_ref"],
-                    "floor_source": floor["source"],
-                    "accepted": False,
-                    "posted": False,
-                    "status": "failed",
-                    "verification_required": False,
-                    "attachment_bridge_failed": True,
-                    "attachments_received": 0,
-                    "message": "Attachment was provided, but official ChatGPT file params were missing or unusable for xFloor upload.",
-                    "error": str(exc),
-                }
-            raise
-        combined_files: list[XFloorFileInput] | None = None
-        if input.files or chatgpt_files_payload:
-            base_files = input.files or []
-            converted_files = [XFloorFileInput(**item) for item in (chatgpt_files_payload or [])]
-            combined_files = [*base_files, *converted_files]
-
-        files_payload = _validate_post_event_attachments(combined_files)
-        result = await client.create_event(token, input_info=input_info, files=files_payload)
+        result = await client.create_event(token, input_info=input_info, files=None)
         compact_result = _compact(result)
-        result_text = json.dumps(compact_result).lower()
-        queued = "submitted to queue" in result_text or "submitted to the queue" in result_text or '"queued"' in result_text
-        status = "queued" if queued else "accepted"
-        message = "Event submission accepted and queued." if queued else "Event submission accepted."
+        status, message = _queued_status(compact_result)
 
         return {
             "floor_id": floor["floor_id"],
@@ -482,7 +478,128 @@ def register_tools(mcp: Any, client: XFloorClient) -> None:
             "verification_required": False,
             "posted": True,
             "message": message,
-            "attachments_received": len(files_payload or []),
+            "attachments_received": 0,
+            "attachment_file_ids": [],
+            "attachment_filenames": [],
+            "event": {
+                "title": normalized_title,
+                "description": input.description,
+                "block_id": normalized_block_id,
+                "location": input.location,
+                "start_date": input.start_date,
+                "start_time": input.start_time,
+                "end_date": input.end_date,
+                "end_time": input.end_time,
+                "attachments_count": 0,
+            },
+            "result": compact_result,
+        }
+
+    _post_event_attachment_tool_kwargs: dict[str, Any] = {
+        "name": "xfloor_post_event_with_attachment_to_current_floor",
+        "description": "Use this when the user explicitly wants to create/post an event with one attached image or PDF in the currently active xFloor. Pass the uploaded file only through top-level `attachment` using the official ChatGPT file param object (`download_url`, `file_id`). Do not invent local paths, base64 payloads, image_url/image_path, or any substitutes. If no official file param is available, do not guess.",
+    }
+    tool_signature = inspect.signature(mcp.tool)
+    if "_meta" in tool_signature.parameters:
+        _post_event_attachment_tool_kwargs["_meta"] = {"openai/fileParams": ["attachment"]}
+
+    @mcp.tool(**_post_event_attachment_tool_kwargs)
+    async def xfloor_post_event_with_attachment_to_current_floor(
+        input: XFloorPostEventWithAttachmentToCurrentFloorInput, ctx: Any = None
+    ) -> dict[str, Any]:
+        logger.info("xfloor_post_event_with_attachment_to_current_floor invoked")
+        token = _extract_auth_token(ctx, None)
+        floor = _resolve_active_floor_id()
+        user_id = _require_context_user_id()
+        logger.info(
+            "Downstream auth path auth_mode=%s using_service_token=%s",
+            get_auth_mode() or "unknown",
+            bool(get_xfloor_service_token()),
+        )
+
+        payload, normalized_block_id = _build_post_event_payload(
+            floor_id=floor["floor_id"],
+            user_id=user_id,
+            title=input.title,
+            description=input.description,
+            block_id=input.block_id,
+            block_type=input.block_type,
+            location=input.location,
+            start_date=input.start_date,
+            start_time=input.start_time,
+            end_date=input.end_date,
+            end_time=input.end_time,
+        )
+        normalized_title = payload["title"]
+
+        try:
+            chatgpt_files_payload, attachment_file_ids, attachment_filenames = await download_chatgpt_attachments(
+                input.attachment.model_dump(),
+                None,
+                allow_local_path_fallback=False,
+            )
+        except AttachmentBridgeError as exc:
+            logger.info("Attachment bridge failure type=%s", exc.__class__.__name__)
+            return {
+                "floor_id": floor["floor_id"],
+                "floor_ref": floor["floor_ref"],
+                "floor_source": floor["source"],
+                "accepted": False,
+                "posted": False,
+                "status": "failed",
+                "verification_required": False,
+                "attachment_bridge_failed": True,
+                "attachments_received": 0,
+                "message": "Attachment was provided, but official ChatGPT file params were missing or unusable for xFloor upload.",
+                "error": str(exc),
+            }
+
+        files = [XFloorFileInput(**item) for item in (chatgpt_files_payload or [])]
+        files_payload = _validate_post_event_attachments(files)
+        if not files_payload or len(files_payload) != 1:
+            return {
+                "floor_id": floor["floor_id"],
+                "floor_ref": floor["floor_ref"],
+                "floor_source": floor["source"],
+                "accepted": False,
+                "posted": False,
+                "status": "failed",
+                "verification_required": False,
+                "attachment_bridge_failed": True,
+                "attachments_received": len(files_payload or []),
+                "message": "Attachment tool requires exactly one official ChatGPT attachment (PNG/JPEG image or PDF).",
+            }
+
+        mime = (files_payload[0].get("mime_type") or "").lower()
+        if mime not in {"image/png", "image/jpeg", "image/jpg", "application/pdf"}:
+            return {
+                "floor_id": floor["floor_id"],
+                "floor_ref": floor["floor_ref"],
+                "floor_source": floor["source"],
+                "accepted": False,
+                "posted": False,
+                "status": "failed",
+                "verification_required": False,
+                "attachment_bridge_failed": True,
+                "attachments_received": 0,
+                "message": "Attachment tool supports exactly one PNG/JPEG image or one PDF from official ChatGPT file params.",
+            }
+
+        input_info = json.dumps(payload)
+        result = await client.create_event(token, input_info=input_info, files=files_payload)
+        compact_result = _compact(result)
+        status, message = _queued_status(compact_result)
+
+        return {
+            "floor_id": floor["floor_id"],
+            "floor_ref": floor["floor_ref"],
+            "floor_source": floor["source"],
+            "accepted": True,
+            "status": status,
+            "verification_required": False,
+            "posted": True,
+            "message": message,
+            "attachments_received": 1,
             "attachment_file_ids": attachment_file_ids,
             "attachment_filenames": attachment_filenames,
             "event": {
@@ -494,7 +611,7 @@ def register_tools(mcp: Any, client: XFloorClient) -> None:
                 "start_time": input.start_time,
                 "end_date": input.end_date,
                 "end_time": input.end_time,
-                "attachments_count": len(files_payload or []),
+                "attachments_count": 1,
             },
             "result": compact_result,
         }
