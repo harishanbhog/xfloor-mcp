@@ -281,6 +281,7 @@ This repo now exposes an additive **v1 ChatGPT-facing MCP surface** on top of th
    - Top-level attachment field only: `attachment`.
    - `attachment` may be either:
      - local uploaded file path string in this runtime (e.g. `/mnt/data/luminous.jpg`), or
+     - local path object `{ "path": "/mnt/data/..." }` (or `file_path`), or
      - official file object `{download_url, file_id}`.
    - `attachment` is a top-level field (not nested under `input`).
    - MCP loads/downloads the attachment, converts to `filename/content_base64/mime_type`, and forwards to xFloor multipart upload.

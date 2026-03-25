@@ -41,6 +41,9 @@ class XFloorChatGPTAttachmentInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
     download_url: str | None = Field(default=None, description="ChatGPT attachment download URL")
     file_id: str | None = Field(default=None, description="ChatGPT file identifier")
+    path: str | None = Field(default=None, description="Optional local uploaded path fallback for proxied runtimes")
+    file_path: str | None = Field(default=None, description="Optional local uploaded path fallback")
+    local_path: str | None = Field(default=None, description="Optional local uploaded path fallback")
 
 
 XFloorChatGPTAttachmentParam = XFloorChatGPTAttachmentInput
@@ -498,7 +501,7 @@ def register_tools(mcp: Any, client: XFloorClient) -> None:
 
     _post_event_attachment_tool_kwargs: dict[str, Any] = {
         "name": "xfloor_post_event_with_attachment_to_current_floor",
-        "description": "Use this when the user explicitly wants to create/post an event with one attached image or PDF in the currently active xFloor. Put the uploaded file only in top-level `attachment`. `attachment` may be either a local uploaded file path string (for this runtime) or an official ChatGPT file param object (`download_url`, `file_id`). Do not invent base64, image_url/image_path, or alternate attachment fields.",
+        "description": "Use this when the user explicitly wants to create/post an event with one attached image or PDF in the currently active xFloor. Put the uploaded file only in top-level `attachment`. `attachment` may be either: (1) local uploaded file path string, (2) local path object (`path`/`file_path`), or (3) official ChatGPT file param object (`download_url`, `file_id`). Do not invent base64, image_url/image_path, or alternate attachment fields.",
     }
     tool_signature = inspect.signature(mcp.tool)
     if "_meta" in tool_signature.parameters:
