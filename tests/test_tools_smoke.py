@@ -39,7 +39,6 @@ if HAS_DEPS:
     from xfloor_mcp.tools import (
         XFloorCreateEventInput,
         XFloorFileInput,
-        XFloorGetCurrentFloorEventsInput,
         XFloorGetFloorInfoInput,
         XFloorPostEventToCurrentFloorInput,
         XFloorQueryCurrentFloorInput,
@@ -113,7 +112,6 @@ class TestToolsSmoke:
             "xfloor_wait_for_ingestion",
             "xfloor_set_active_floor",
             "xfloor_query_current_floor",
-            "xfloor_get_current_floor_events",
             "xfloor_post_event_to_current_floor",
         }
 
@@ -123,7 +121,6 @@ class TestToolsSmoke:
         assert get_type_hints(mcp.registry["xfloor_get_floor_info"])["input"] is XFloorGetFloorInfoInput
         assert get_type_hints(mcp.registry["xfloor_set_active_floor"])["input"] is XFloorSetActiveFloorInput
         assert get_type_hints(mcp.registry["xfloor_query_current_floor"])["input"] is XFloorQueryCurrentFloorInput
-        assert get_type_hints(mcp.registry["xfloor_get_current_floor_events"])["input"] is XFloorGetCurrentFloorEventsInput
         assert get_type_hints(mcp.registry["xfloor_post_event_to_current_floor"])["input"] is XFloorPostEventToCurrentFloorInput
         assert "xfloor_post_event_with_attachment_to_current_floor" not in mcp.registry
 
@@ -307,10 +304,6 @@ class TestToolsSmoke:
                 assert kwargs["floor_ids"] == ["phari"]
                 return {"answers": ["ok"]}
 
-            async def recent_events(self, token: str, *, params: dict[str, Any]) -> dict[str, Any]:
-                assert params["floor_id"] == "phari"
-                return {"events": [{"title": "Demo"}]}
-
             async def create_event(self, token: str, **kwargs: Any) -> dict[str, Any]:
                 payload = json.loads(kwargs["input_info"])
                 assert payload["floor_id"] == "phari"
@@ -327,10 +320,6 @@ class TestToolsSmoke:
             XFloorQueryCurrentFloorInput(query="What is happening?"),
             None,
         )
-        events_result = await mcp.registry["xfloor_get_current_floor_events"](
-            XFloorGetCurrentFloorEventsInput(limit=5),
-            None,
-        )
         post_result = await mcp.registry["xfloor_post_event_to_current_floor"](
             XFloorPostEventToCurrentFloorInput(title="Town Hall", description="Bring questions"),
             None,
@@ -338,7 +327,6 @@ class TestToolsSmoke:
 
         assert set_result["message"] == "Active floor set to phari"
         assert query_result["floor_source"] == "session_state"
-        assert events_result["count"] == 1
         assert post_result["posted"] is True
 
     @pytest.mark.asyncio

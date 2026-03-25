@@ -267,11 +267,7 @@ This repo now exposes an additive **v1 ChatGPT-facing MCP surface** on top of th
    - Use this when the user wants to ask a question about the currently active xFloor.
    - Inputs: `query`, optional `topic`, optional `limit`.
 
-3. `xfloor_get_current_floor_events`
-   - Use this when the user wants recent or upcoming events from the currently active xFloor.
-   - Inputs: optional `limit`, optional `event_type`.
-
-4. `xfloor_post_event_to_current_floor`
+3. `xfloor_post_event_to_current_floor`
    - **Text-only** post tool for the currently active xFloor.
    - Inputs: optional `title` (falls back to `description`), `description`, optional `block_id`, plus optional `block_type`, `location`, `start_date`, `start_time`, `end_date`, `end_time`.
 
@@ -334,8 +330,7 @@ Then run tools in this order:
    {"floor_ref": "@phari"}
    ```
 2. `xfloor_query_current_floor`
-3. `xfloor_get_current_floor_events`
-4. `xfloor_post_event_to_current_floor`
+3. `xfloor_post_event_to_current_floor`
 
 The `X-XFloor-Active-Floor-Id` header is still supported as an optional fallback/debug mechanism, but a floor chosen with `xfloor_set_active_floor` now takes precedence.
 
@@ -362,7 +357,7 @@ If you are in `noauth` mode, also include:
 Then run tools:
 
 - First set a floor with: `xfloor_set_active_floor`
-- Then use the preferred v1 tools: `xfloor_query_current_floor`, `xfloor_get_current_floor_events`, `xfloor_post_event_to_current_floor`
+- Then use the preferred v1 tools: `xfloor_query_current_floor`, `xfloor_post_event_to_current_floor`
 - Backward-compatible tools remain available: `xfloor_query_memory`, `xfloor_create_event`, `xfloor_recent_events`, `xfloor_get_floor_info`, `xfloor_wait_for_ingestion`
 
 ---

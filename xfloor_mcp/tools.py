@@ -97,11 +97,6 @@ class XFloorQueryCurrentFloorInput(BaseModel):
     limit: int | None = Field(default=None, ge=1, le=20, description="Optional maximum number of results to consider")
 
 
-class XFloorGetCurrentFloorEventsInput(BaseModel):
-    limit: int | None = Field(default=10, ge=1, le=100, description="Maximum number of recent events to return")
-    event_type: str | None = Field(default=None, description="Optional event type filter")
-
-
 class XFloorPostEventToCurrentFloorInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
     title: str | None = Field(default=None, description="Optional short event title. If omitted, description will be used as title.")
@@ -354,28 +349,6 @@ def register_tools(mcp: Any, client: XFloorClient) -> None:
             "floor_source": floor["source"],
             "query": input.query,
             "result": _compact(result),
-        }
-
-    @mcp.tool(
-        name="xfloor_get_current_floor_events",
-        description="Use this when the user wants recent or upcoming events from the currently active xFloor. This tool uses the active floor selected by xfloor_set_active_floor, with the request header acting only as an optional override/debug path.",
-    )
-    async def xfloor_get_current_floor_events(input: XFloorGetCurrentFloorEventsInput, ctx: Any = None) -> dict[str, Any]:
-        token = _extract_auth_token(ctx, None)
-        floor = _resolve_active_floor_id()
-        params: dict[str, Any] = {"floor_id": floor["floor_id"]}
-        if input.limit is not None:
-            params["limit"] = input.limit
-        if input.event_type:
-            params["event_type"] = input.event_type
-        result = await client.recent_events(token, params=params)
-        events = _extract_events_list(result)
-        return {
-            "floor_id": floor["floor_id"],
-            "floor_ref": floor["floor_ref"],
-            "floor_source": floor["source"],
-            "count": len(events),
-            "events": events,
         }
 
     @mcp.tool(
