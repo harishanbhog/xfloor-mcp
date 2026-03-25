@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import inspect
 import logging
 from typing import Any
 
@@ -338,8 +339,75 @@ def normalize_query_response(
     return structured_content, meta
 
 
+def _build_query_results_widget_html() -> str:
+    return """<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <style>
+      body { font-family: system-ui, sans-serif; margin: 8px 0; }
+      #chips { display: flex; flex-wrap: wrap; gap: 6px; }
+      .chip { border: 1px solid #d0d7de; background: #f6f8fa; border-radius: 999px; padding: 4px 10px; cursor: pointer; }
+      .hint { font-size: 12px; color: #666; margin-bottom: 6px; }
+    </style>
+  </head>
+  <body>
+    <div class="hint">Related floors</div>
+    <div id="chips"></div>
+    <script>
+      const api = window.openai || {};
+      const sc = (window.structuredContent || window.__structuredContent || api?.toolOutput?.structuredContent || {});
+      const floors = Array.isArray(sc.relevantFloors) ? sc.relevantFloors : [];
+      const chips = document.getElementById("chips");
+      if (!floors.length) {
+        document.querySelector(".hint").style.display = "none";
+      }
+      floors.slice(0, 8).forEach((floor) => {
+        const button = document.createElement("button");
+        button.className = "chip";
+        button.textContent = "@" + (floor.floorName || floor.floorUid || "floor");
+        if (floor.floorDescription) button.title = floor.floorDescription;
+        button.addEventListener("click", async () => {
+          if (typeof api.callTool !== "function") return;
+          await api.callTool("xfloor_set_active_floor", {
+            floor_id: floor.floorUid || undefined,
+            floor_ref: floor.floorName || undefined,
+          });
+        });
+        chips.appendChild(button);
+      });
+    </script>
+  </body>
+</html>"""
+
+
 def register_tools(mcp: Any, client: XFloorClient) -> None:
     """Register MCP tools on the provided FastMCP instance."""
+    query_widget_uri = "ui://widget/query-results-v1.html"
+    tool_signature = inspect.signature(mcp.tool)
+    supports_meta = "_meta" in tool_signature.parameters or any(
+        param.kind == inspect.Parameter.VAR_KEYWORD for param in tool_signature.parameters.values()
+    )
+
+    def _register_query_widget_resource() -> None:
+        if not hasattr(mcp, "resource"):
+            return
+        html = _build_query_results_widget_html()
+        try:
+            @mcp.resource(query_widget_uri, name="xfloor-query-results-v1", mime_type="text/html")
+            async def _query_widget() -> str:
+                return html
+            return
+        except TypeError:
+            pass
+        try:
+            @mcp.resource(query_widget_uri)
+            async def _query_widget_uri_only() -> str:
+                return html
+        except TypeError:
+            logger.info("Query widget resource registration skipped due to incompatible runtime signature")
+
+    _register_query_widget_resource()
 
     @mcp.tool(name="xfloor_query_memory", description="Query xFloor memory")
     async def xfloor_query_memory(input: XFloorQueryMemoryInput, ctx: Any = None) -> dict[str, Any]:
@@ -425,10 +493,17 @@ def register_tools(mcp: Any, client: XFloorClient) -> None:
             "state_scope": "in_memory_session",
         }
 
-    @mcp.tool(
-        name="xfloor_query_current_floor",
-        description="Use this when the user wants to ask a question about the currently active xFloor. This tool uses the active floor selected by xfloor_set_active_floor, with the request header acting only as an optional override/debug path.",
-    )
+    _query_tool_kwargs: dict[str, Any] = {
+        "name": "xfloor_query_current_floor",
+        "description": "Use this when the user wants to ask a question about the currently active xFloor. This tool uses the active floor selected by xfloor_set_active_floor, with the request header acting only as an optional override/debug path.",
+    }
+    if supports_meta:
+        _query_tool_kwargs["_meta"] = {
+            "ui": {"resourceUri": query_widget_uri},
+            "openai/outputTemplate": query_widget_uri,
+        }
+
+    @mcp.tool(**_query_tool_kwargs)
     async def xfloor_query_current_floor(input: XFloorQueryCurrentFloorInput, ctx: Any = None) -> dict[str, Any]:
         token = _extract_auth_token(ctx, None)
         floor = _resolve_active_floor_id()
@@ -471,7 +546,11 @@ def register_tools(mcp: Any, client: XFloorClient) -> None:
             "content": [{"type": "text", "text": answer_text}],
             "structuredContent": structured_content,
             "_meta": {
-                "ui_rendering_mode": "text_fallback_for_remote_mcp",
+                "ui_rendering_mode": "widget_with_text_fallback",
+                "queryWidgetPayload": {
+                    "resourceUri": query_widget_uri,
+                    "resultCount": structured_content["resultCount"],
+                },
                 **widget_meta,
             },
         }

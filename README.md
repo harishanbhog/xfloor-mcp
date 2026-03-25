@@ -273,8 +273,8 @@ This repo now exposes an additive **v1 ChatGPT-facing MCP surface** on top of th
      - `bestMatch`
      - `relevantFloors[]`
      - `resultCount`
-   - In generic remote-MCP tool-calling surfaces, this returns a text fallback list of related floors.
-   - In widget-capable app surfaces, you can optionally map the same `structuredContent` into chips/buttons.
+   - In widget-capable app surfaces, `ui://widget/query-results-v1.html` renders tiny floor chips under the answer.
+   - In generic remote-MCP tool-calling surfaces, this still returns a text fallback list of related floors.
 
 3. `xfloor_post_event_to_current_floor`
    - **Text-only** post tool for the currently active xFloor.
@@ -294,8 +294,8 @@ This repo now exposes an additive **v1 ChatGPT-facing MCP surface** on top of th
 - Raw xFloor `items[].text` are parsed when possible and mapped into normalized floor rows.
 - Malformed `item.text` fails soft: answer is still returned, malformed items are counted in `_meta`.
 - Relevant floors are sorted by score and exposed in `structuredContent.relevantFloors`.
-- Remote MCP tool callers get a compact text fallback listing related floors with switch-floor guidance.
-- If you deploy on a widget-capable app surface (ChatKit/Apps), you can render chips from `structuredContent`.
+- Widget-capable app surfaces can render tiny chips from `structuredContent.relevantFloors` and call `xfloor_set_active_floor`.
+- Remote MCP tool callers still get a compact text fallback listing related floors with switch-floor guidance.
 
 ### Active-floor precedence rules
 
