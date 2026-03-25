@@ -72,6 +72,14 @@ class TestToolsSmoke:
 
             return decorator
 
+    class _FakeMCPResourceUriOnly(_FakeMCP):
+        def resource(self, uri: str):
+            def decorator(func):
+                self.resources[uri] = func
+                return func
+
+            return decorator
+
         def resource(self, uri: str, **kwargs: Any):
             def decorator(func):
                 self.resources[uri] = func
@@ -133,6 +141,13 @@ class TestToolsSmoke:
         result = await mcp.registry["xfloor_open_post_widget"]()
         assert result["ok"] is True
         assert result["widget"]["resource_uri"] == "ui://xfloor/post-widget"
+        assert result["_meta"]["ui"]["resourceUri"] == "ui://xfloor/post-widget"
+
+    @pytest.mark.asyncio
+    async def test_widget_resource_registers_for_uri_only_resource_signature(self) -> None:
+        mcp = self._FakeMCPResourceUriOnly()
+        register_tools(mcp=mcp, client=SimpleNamespace())
+        assert "ui://xfloor/post-widget" in mcp.resources
 
     def test_post_widget_template_calls_expected_openai_widget_apis(self) -> None:
         html = _build_post_widget_html()

@@ -439,6 +439,7 @@ def register_tools(mcp: Any, client: XFloorClient) -> None:
     """Register MCP tools on the provided FastMCP instance."""
     widget_resource_uri = "ui://xfloor/post-widget"
     widget_tool_meta = {
+        "ui": {"resourceUri": widget_resource_uri},
         "openai/outputTemplate": widget_resource_uri,
         "openai/toolInvocation/invoking": "Opening xFloor post widget",
         "openai/toolInvocation/invoked": "xFloor post widget opened",
@@ -468,6 +469,15 @@ def register_tools(mcp: Any, client: XFloorClient) -> None:
             @mcp.resource(uri=widget_resource_uri, name="xfloor-post-widget", mime_type="text/html")
             async def _xfloor_post_widget_kwargs() -> str:
                 return widget_html
+            return
+        except TypeError:
+            pass
+
+        try:
+            @mcp.resource(widget_resource_uri)
+            async def _xfloor_post_widget_uri_only() -> str:
+                return widget_html
+            return
         except TypeError:
             logger.info("Widget resource registration failed due to incompatible runtime signature")
 
@@ -484,6 +494,10 @@ def register_tools(mcp: Any, client: XFloorClient) -> None:
             "ok": True,
             "message": "xFloor post widget opened. Submit text-only or one attachment from the widget.",
             "widget": {"resource_uri": widget_resource_uri},
+            "_meta": {
+                "ui": {"resourceUri": widget_resource_uri},
+                "openai/outputTemplate": widget_resource_uri,
+            },
         }
 
     @mcp.tool(name="xfloor_query_memory", description="Query xFloor memory")
