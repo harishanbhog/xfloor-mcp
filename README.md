@@ -282,6 +282,7 @@ This repo now exposes an additive **v1 ChatGPT-facing MCP surface** on top of th
    - `attachment` may be either:
      - local uploaded file path string in this runtime (e.g. `/mnt/data/luminous.jpg`), or
      - official file object `{download_url, file_id}`.
+   - `attachment` is a top-level field (not nested under `input`).
    - MCP loads/downloads the attachment, converts to `filename/content_base64/mime_type`, and forwards to xFloor multipart upload.
    - Do **not** invent base64 payloads, `image_url`, or `image_path` substitutes in ChatGPT-facing calls.
    - Internal/direct callers can still use legacy/internal `files` handling through non-ChatGPT tool paths when intentionally bypassing ChatGPT file params.

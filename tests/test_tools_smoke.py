@@ -42,7 +42,6 @@ if HAS_DEPS:
         XFloorGetCurrentFloorEventsInput,
         XFloorGetFloorInfoInput,
         XFloorPostEventToCurrentFloorInput,
-        XFloorPostEventWithAttachmentToCurrentFloorInput,
         XFloorQueryCurrentFloorInput,
         XFloorQueryMemoryInput,
         XFloorRecentEventsInput,
@@ -115,7 +114,6 @@ class TestToolsSmoke:
         assert get_type_hints(mcp.registry["xfloor_query_current_floor"])["input"] is XFloorQueryCurrentFloorInput
         assert get_type_hints(mcp.registry["xfloor_get_current_floor_events"])["input"] is XFloorGetCurrentFloorEventsInput
         assert get_type_hints(mcp.registry["xfloor_post_event_to_current_floor"])["input"] is XFloorPostEventToCurrentFloorInput
-        assert get_type_hints(mcp.registry["xfloor_post_event_with_attachment_to_current_floor"])["input"] is XFloorPostEventWithAttachmentToCurrentFloorInput
 
     @pytest.mark.asyncio
     async def test_client_calls_httpx_with_auth_and_context_params(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -382,7 +380,7 @@ class TestToolsSmoke:
 
         async def _fake_download(single: dict[str, Any] | str | None, many: list[dict[str, Any] | str] | None, timeout_s: float = 20.0, allow_local_path_fallback: bool = False):
             assert single is not None
-            assert allow_local_path_fallback is False
+            assert allow_local_path_fallback is True
             return ([{"filename": "luminous.jpg", "content_base64": "aGVsbG8=", "mime_type": "image/jpeg"}], ["file_123"], ["luminous.jpg"])
 
         monkeypatch.setattr("xfloor_mcp.tools.download_chatgpt_attachments", _fake_download)
@@ -398,12 +396,10 @@ class TestToolsSmoke:
         await mcp.registry["xfloor_set_active_floor"](XFloorSetActiveFloorInput(floor_ref="@phari"), None)
 
         result = await mcp.registry["xfloor_post_event_with_attachment_to_current_floor"](
-            XFloorPostEventWithAttachmentToCurrentFloorInput(
-                title="Luminous UPS",
-                description="Just installed at home.",
-                attachment={"download_url": "https://download.local/file.jpg", "file_id": "file_123"},
-            ),
-            None,
+            title="Luminous UPS",
+            description="Just installed at home.",
+            attachment={"download_url": "https://download.local/file.jpg", "file_id": "file_123"},
+            ctx=None,
         )
         assert result["posted"] is True
         assert result["attachments_received"] == 1
@@ -435,12 +431,10 @@ class TestToolsSmoke:
         await mcp.registry["xfloor_set_active_floor"](XFloorSetActiveFloorInput(floor_ref="@phari"), None)
 
         result = await mcp.registry["xfloor_post_event_with_attachment_to_current_floor"](
-            XFloorPostEventWithAttachmentToCurrentFloorInput(
-                title="Luminous UPS",
-                description="path-based upload",
-                attachment="/mnt/data/luminous.jpg",
-            ),
-            None,
+            title="Luminous UPS",
+            description="path-based upload",
+            attachment="/mnt/data/luminous.jpg",
+            ctx=None,
         )
         assert result["posted"] is True
         assert result["attachments_received"] == 1
@@ -468,12 +462,10 @@ class TestToolsSmoke:
         await mcp.registry["xfloor_set_active_floor"](XFloorSetActiveFloorInput(floor_ref="@phari"), None)
 
         result = await mcp.registry["xfloor_post_event_with_attachment_to_current_floor"](
-            XFloorPostEventWithAttachmentToCurrentFloorInput(
-                title="Broken",
-                description="broken",
-                attachment={"download_url": "https://download.local/bad", "file_id": "file_bad"},
-            ),
-            None,
+            title="Broken",
+            description="broken",
+            attachment={"download_url": "https://download.local/bad", "file_id": "file_bad"},
+            ctx=None,
         )
         assert result["accepted"] is False
         assert result["attachment_bridge_failed"] is True
@@ -498,12 +490,10 @@ class TestToolsSmoke:
         register_tools(mcp=mcp, client=_FakeClient())
         await mcp.registry["xfloor_set_active_floor"](XFloorSetActiveFloorInput(floor_ref="@phari"), None)
         result = await mcp.registry["xfloor_post_event_with_attachment_to_current_floor"](
-            XFloorPostEventWithAttachmentToCurrentFloorInput(
-                title="Bad type",
-                description="txt file",
-                attachment={"download_url": "https://download.local/notes.txt", "file_id": "file_txt"},
-            ),
-            None,
+            title="Bad type",
+            description="txt file",
+            attachment={"download_url": "https://download.local/notes.txt", "file_id": "file_txt"},
+            ctx=None,
         )
         assert result["accepted"] is False
         assert result["status"] == "failed"
@@ -524,12 +514,10 @@ class TestToolsSmoke:
         await mcp.registry["xfloor_set_active_floor"](XFloorSetActiveFloorInput(floor_ref="@phari"), None)
 
         result = await mcp.registry["xfloor_post_event_with_attachment_to_current_floor"](
-            XFloorPostEventWithAttachmentToCurrentFloorInput(
-                title="Bad",
-                description="bad",
-                attachment={"file_id": "file_missing_url"},
-            ),
-            None,
+            title="Bad",
+            description="bad",
+            attachment={"file_id": "file_missing_url"},
+            ctx=None,
         )
         assert result["accepted"] is False
         assert result["attachment_bridge_failed"] is True
@@ -554,8 +542,10 @@ class TestToolsSmoke:
             {"file_id": "file_x", "download_url": ""},
         ]:
             result = await mcp.registry["xfloor_post_event_with_attachment_to_current_floor"](
-                XFloorPostEventWithAttachmentToCurrentFloorInput(title="Bad", description="bad", attachment=invalid),
-                None,
+                title="Bad",
+                description="bad",
+                attachment=invalid,
+                ctx=None,
             )
             assert result["accepted"] is False
             assert result["attachment_bridge_failed"] is True
@@ -584,12 +574,10 @@ class TestToolsSmoke:
         await mcp.registry["xfloor_set_active_floor"](XFloorSetActiveFloorInput(floor_ref="@phari"), None)
 
         result = await mcp.registry["xfloor_post_event_with_attachment_to_current_floor"](
-            XFloorPostEventWithAttachmentToCurrentFloorInput(
-                title="OAuth",
-                description="token boundary",
-                attachment={"download_url": "https://download.local/auth.jpg", "file_id": "file_auth"},
-            ),
-            None,
+            title="OAuth",
+            description="token boundary",
+            attachment={"download_url": "https://download.local/auth.jpg", "file_id": "file_auth"},
+            ctx=None,
         )
         assert result["posted"] is True
         assert result["accepted"] is True

@@ -506,10 +506,20 @@ def register_tools(mcp: Any, client: XFloorClient) -> None:
 
     @mcp.tool(**_post_event_attachment_tool_kwargs)
     async def xfloor_post_event_with_attachment_to_current_floor(
-        input: XFloorPostEventWithAttachmentToCurrentFloorInput, ctx: Any = None
+        description: str,
+        attachment: XFloorHybridAttachmentParam,
+        title: str | None = None,
+        block_id: str | None = None,
+        block_type: str | None = "note",
+        location: str | None = None,
+        start_date: str | None = None,
+        start_time: str | None = None,
+        end_date: str | None = None,
+        end_time: str | None = None,
+        ctx: Any = None,
     ) -> dict[str, Any]:
         logger.info("xfloor_post_event_with_attachment_to_current_floor invoked")
-        logger.info("Attachment input kind=%s", "local_path" if isinstance(input.attachment, str) else "official_object")
+        logger.info("Attachment input kind=%s", "local_path" if isinstance(attachment, str) else "official_object")
         token = _extract_auth_token(ctx, None)
         floor = _resolve_active_floor_id()
         user_id = _require_context_user_id()
@@ -522,24 +532,26 @@ def register_tools(mcp: Any, client: XFloorClient) -> None:
         payload, normalized_block_id = _build_post_event_payload(
             floor_id=floor["floor_id"],
             user_id=user_id,
-            title=input.title,
-            description=input.description,
-            block_id=input.block_id,
-            block_type=input.block_type,
-            location=input.location,
-            start_date=input.start_date,
-            start_time=input.start_time,
-            end_date=input.end_date,
-            end_time=input.end_time,
+            title=title,
+            description=description,
+            block_id=block_id,
+            block_type=block_type,
+            location=location,
+            start_date=start_date,
+            start_time=start_time,
+            end_date=end_date,
+            end_time=end_time,
         )
         normalized_title = payload["title"]
 
         try:
             raw_attachment: dict[str, Any] | str
-            if isinstance(input.attachment, str):
-                raw_attachment = input.attachment
+            if isinstance(attachment, str):
+                raw_attachment = attachment
+            elif isinstance(attachment, dict):
+                raw_attachment = XFloorChatGPTAttachmentInput(**attachment).model_dump()
             else:
-                raw_attachment = input.attachment.model_dump()
+                raw_attachment = attachment.model_dump()
             chatgpt_files_payload, attachment_file_ids, attachment_filenames = await download_chatgpt_attachments(
                 raw_attachment,
                 None,
@@ -597,7 +609,7 @@ def register_tools(mcp: Any, client: XFloorClient) -> None:
         logger.info("Downstream xFloor upload invoked for attachment tool")
         compact_result = _compact(result)
         status, message = _queued_status(compact_result)
-        attachment_source = "local_path" if isinstance(input.attachment, str) else "download_url"
+        attachment_source = "local_path" if isinstance(attachment, str) else "download_url"
 
         return {
             "floor_id": floor["floor_id"],
@@ -614,13 +626,13 @@ def register_tools(mcp: Any, client: XFloorClient) -> None:
             "attachment_source": attachment_source,
             "event": {
                 "title": normalized_title,
-                "description": input.description,
+                "description": description,
                 "block_id": normalized_block_id,
-                "location": input.location,
-                "start_date": input.start_date,
-                "start_time": input.start_time,
-                "end_date": input.end_date,
-                "end_time": input.end_time,
+                "location": location,
+                "start_date": start_date,
+                "start_time": start_time,
+                "end_date": end_date,
+                "end_time": end_time,
                 "attachments_count": 1,
             },
             "result": compact_result,
