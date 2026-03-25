@@ -48,9 +48,6 @@ class Settings(BaseSettings):
     )
     xfloor_auth0_audience: str | None = Field(default="https://xFloorMCPTest", alias="XFLOOR_AUTH0_AUDIENCE")
     xfloor_oauth_resource: str | None = Field(default=None, alias="XFLOOR_OAUTH_RESOURCE")
-    xfloor_chatgpt_attachment_local_path_fallback: bool = Field(
-        default=False, alias="XFLOOR_CHATGPT_ATTACHMENT_LOCAL_PATH_FALLBACK"
-    )
 
     @field_validator("cors_allow_origins", "cors_allow_methods", "cors_allow_headers", mode="before")
     @classmethod

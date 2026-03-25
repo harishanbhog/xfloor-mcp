@@ -271,23 +271,37 @@ This repo now exposes an additive **v1 ChatGPT-facing MCP surface** on top of th
    - Use this when the user wants recent or upcoming events from the currently active xFloor.
    - Inputs: optional `limit`, optional `event_type`.
 
-4. `xfloor_post_event_to_current_floor`
-   - **Text-only** post tool for the currently active xFloor.
-   - Inputs: optional `title` (falls back to `description` if omitted), `description`, optional `block_id`, plus optional event fields like `location`, `start_date`, `start_time`, `end_date`, and `end_time`.
-   - If the user attached media, use `xfloor_post_event_with_attachment_to_current_floor` instead.
+4. `xfloor_open_post_widget`
+   - **Default posting entry point** for ChatGPT post/share/create intents.
+   - Opens the unified widget resource `ui://xfloor/post-widget`.
+   - The widget handles both text-only and one-attachment submissions.
 
-5. `xfloor_post_event_with_attachment_to_current_floor`
-   - Post an event with exactly **one** official ChatGPT attachment.
-   - Top-level attachment field only: `attachment`.
-   - `attachment` may be either:
-     - local uploaded file path string in this runtime (e.g. `/mnt/data/luminous.jpg`), or
-     - official file object `{download_url, file_id}`.
-   - If only `file_id` is provided, MCP attempts OpenAI file-content resolution using `OPENAI_API_KEY`.
-   - `attachment` is a top-level field (not nested under `input`).
-   - MCP tool registration marks `attachment` as a file-arg rewrite path when the runtime supports `file_arg_rewrite_paths`.
-   - MCP loads/downloads the attachment, converts to `filename/content_base64/mime_type`, and forwards to xFloor multipart upload.
-   - Do **not** invent base64 payloads, `image_url`, or `image_path` substitutes in ChatGPT-facing calls.
-   - Internal/direct callers can still use legacy/internal `files` handling through non-ChatGPT tool paths when intentionally bypassing ChatGPT file params.
+5. `xfloor_post_event_to_current_floor`
+   - **Text-only** post tool for the currently active xFloor.
+   - Inputs: optional `title` (falls back to `description`), `description`, optional `block_id`, plus optional `block_type`, `location`, `start_date`, `start_time`, `end_date`, `end_time`.
+   - The widget routes no-file submissions to this tool.
+
+6. `xfloor_post_event_with_attachment_to_current_floor`
+   - Post an event with exactly **one** official ChatGPT widget attachment.
+   - Strict contract: top-level `attachment: { file_id, download_url }`.
+   - Allowed attachment MIME types: PNG, JPEG/JPG, PDF.
+   - MCP downloads from `download_url`, converts to `filename/content_base64/mime_type`, and forwards through the existing xFloor multipart upload path.
+   - The widget routes file submissions to this tool.
+   - Local path passthrough (`/mnt/data/...`), proxied-mount rewrite tricks, base64 guessing, and `image_url`/`image_path` hacks are intentionally not supported in the public ChatGPT-facing contract.
+
+### Unified posting widget flow (ChatGPT App)
+
+The post widget is the standard UX for all posting intents:
+
+1. Open widget (`xfloor_open_post_widget`) or let tool metadata open it.
+2. Fill title/description/optional metadata.
+3. Optional attachment:
+   - New file: `window.openai.uploadFile(file, { library: true })` -> `fileId`
+   - Existing file: `window.openai.selectFiles()` -> `fileId`
+   - Resolve URL: `window.openai.getFileDownloadUrl({ fileId })` -> `downloadUrl`
+4. Submit:
+   - no file -> `xfloor_post_event_to_current_floor`
+   - file present -> `xfloor_post_event_with_attachment_to_current_floor` with `attachment: { file_id, download_url }`
 
 ### Active-floor precedence rules
 

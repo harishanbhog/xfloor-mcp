@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-import inspect
 import json
+import inspect
 import logging
 import mimetypes
 import os
@@ -12,7 +12,7 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from .active_floor_state import get_active_floor_state, resolve_floor_reference, set_active_floor_state
-from .chatgpt_files import AttachmentBridgeError, download_chatgpt_attachments
+from .chatgpt_files import AttachmentBridgeError, download_chatgpt_attachment
 from .request_context import get_active_floor_id, get_auth_mode, get_auth_token, get_user_id, get_xfloor_service_token
 from .xfloor_client import XFloorClient
 
@@ -44,7 +44,6 @@ class XFloorChatGPTAttachmentInput(BaseModel):
 
 
 XFloorChatGPTAttachmentParam = XFloorChatGPTAttachmentInput
-XFloorHybridAttachmentParam = XFloorChatGPTAttachmentInput | str
 
 
 class XFloorCreateEventInput(BaseModel):
@@ -124,8 +123,8 @@ class XFloorPostEventWithAttachmentToCurrentFloorInput(BaseModel):
     start_time: str | None = Field(default=None, description="Optional start time")
     end_date: str | None = Field(default=None, description="Optional end date")
     end_time: str | None = Field(default=None, description="Optional end time")
-    attachment: XFloorHybridAttachmentParam = Field(
-        description="Single attachment input: local uploaded file path string OR official ChatGPT file param object ({download_url, file_id}).",
+    attachment: XFloorChatGPTAttachmentParam = Field(
+        description="Single official ChatGPT widget attachment object: {file_id, download_url}.",
     )
 
 
@@ -300,51 +299,192 @@ def _queued_status(compact_result: dict[str, Any]) -> tuple[str, str]:
     return status, message
 
 
+def _build_post_widget_html() -> str:
+    return """<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>xFloor Post Widget</title>
+    <style>
+      body { font-family: system-ui, sans-serif; margin: 16px; }
+      form { display: grid; gap: 8px; }
+      input, textarea { width: 100%; box-sizing: border-box; }
+      textarea { min-height: 96px; }
+      .row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+      .actions { display: flex; gap: 8px; }
+      #status { font-size: 12px; color: #444; }
+    </style>
+  </head>
+  <body>
+    <h3>xFloor Post</h3>
+    <form id="post-form">
+      <input id="title" placeholder="Title (optional)" />
+      <textarea id="description" placeholder="Description (required)" required></textarea>
+      <div class="row">
+        <input id="block_id" placeholder="Block ID (optional)" />
+        <input id="block_type" placeholder="Block type (optional)" value="note" />
+      </div>
+      <input id="location" placeholder="Location (optional)" />
+      <div class="row">
+        <input id="start_date" placeholder="Start date" />
+        <input id="start_time" placeholder="Start time" />
+      </div>
+      <div class="row">
+        <input id="end_date" placeholder="End date" />
+        <input id="end_time" placeholder="End time" />
+      </div>
+      <input id="file" type="file" accept="image/png,image/jpeg,application/pdf" />
+      <div class="actions">
+        <button type="button" id="pick-library">Choose from library</button>
+        <button type="submit">Post</button>
+      </div>
+      <button type="button" id="cancel">Cancel</button>
+    </form>
+    <p id="status">Ready.</p>
+    <script>
+      const api = window.openai || {};
+      const statusEl = document.getElementById("status");
+      const form = document.getElementById("post-form");
+      let selectedFile = null;
+      const setStatus = (msg) => { statusEl.textContent = msg; };
+
+      const field = (id) => document.getElementById(id).value?.trim();
+      const buildArgs = () => ({
+        title: field("title") || undefined,
+        description: field("description"),
+        block_id: field("block_id") || undefined,
+        block_type: field("block_type") || undefined,
+        location: field("location") || undefined,
+        start_date: field("start_date") || undefined,
+        start_time: field("start_time") || undefined,
+        end_date: field("end_date") || undefined,
+        end_time: field("end_time") || undefined,
+      });
+
+      document.getElementById("file").addEventListener("change", async (e) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+        if (typeof api.uploadFile !== "function" || typeof api.getFileDownloadUrl !== "function") {
+          setStatus("File APIs are unavailable in this runtime.");
+          return;
+        }
+        setStatus("Uploading file...");
+        const upload = await api.uploadFile(file, { library: true });
+        const fileId = upload?.fileId || upload?.id;
+        if (!fileId) throw new Error("uploadFile did not return a fileId");
+        setStatus("Resolving download URL...");
+        const download = await api.getFileDownloadUrl({ fileId });
+        selectedFile = { file_id: fileId, download_url: download?.downloadUrl || download?.url };
+        if (!selectedFile.download_url) throw new Error("No download URL returned");
+        setStatus("File ready.");
+      });
+
+      document.getElementById("pick-library").addEventListener("click", async () => {
+        if (typeof api.selectFiles !== "function" || typeof api.getFileDownloadUrl !== "function") {
+          setStatus("File library picker is unavailable in this runtime.");
+          return;
+        }
+        const selected = await api.selectFiles();
+        const first = Array.isArray(selected) ? selected[0] : selected?.files?.[0];
+        const fileId = first?.fileId || first?.id;
+        if (!fileId) {
+          setStatus("No file selected.");
+          return;
+        }
+        const download = await api.getFileDownloadUrl({ fileId });
+        selectedFile = { file_id: fileId, download_url: download?.downloadUrl || download?.url };
+        if (!selectedFile.download_url) throw new Error("No download URL returned");
+        setStatus("Library file ready.");
+      });
+
+      document.getElementById("cancel").addEventListener("click", () => {
+        if (typeof api.close === "function") api.close();
+      });
+
+      form.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const args = buildArgs();
+        if (!args.description) {
+          setStatus("Description is required.");
+          return;
+        }
+        if (typeof api.callTool !== "function") {
+          setStatus("callTool API unavailable.");
+          return;
+        }
+        if (selectedFile) {
+          setStatus("Posting with attachment...");
+          await api.callTool("xfloor_post_event_with_attachment_to_current_floor", { ...args, attachment: selectedFile });
+        } else {
+          setStatus("Posting text-only...");
+          await api.callTool("xfloor_post_event_to_current_floor", args);
+        }
+        setStatus("Post submitted.");
+      });
+    </script>
+  </body>
+</html>"""
+
+
 async def _resolve_attachment_input(
-    attachment: XFloorHybridAttachmentParam,
-) -> tuple[list[dict[str, str]] | None, list[str], list[str], str]:
-    if isinstance(attachment, str):
-        files, file_ids, filenames = await download_chatgpt_attachments(
-            attachment,
-            None,
-            allow_local_path_fallback=True,
-        )
-        return files, file_ids, filenames, "local_path"
-
-    if isinstance(attachment, dict):
-        try:
-            attachment = XFloorChatGPTAttachmentInput(**attachment)
-        except Exception as exc:  # noqa: BLE001
-            raise AttachmentBridgeError("Attachment object shape is invalid. Use top-level path string or object with download_url/file_id.") from exc
-
+    attachment: XFloorChatGPTAttachmentParam,
+) -> tuple[list[dict[str, str]], list[str], list[str]]:
     payload = attachment.model_dump()
-    download_url = str(payload.get("download_url") or "").strip()
-    file_id = str(payload.get("file_id") or "").strip()
-    if download_url:
-        files, file_ids, filenames = await download_chatgpt_attachments(
-            payload,
-            None,
-            allow_local_path_fallback=True,
-        )
-        return files, file_ids, filenames, "download_url"
-    if file_id:
-        files, file_ids, filenames = await download_chatgpt_attachments(
-            payload,
-            None,
-            allow_local_path_fallback=True,
-        )
-        return files, file_ids, filenames, "file_id"
-    raise AttachmentBridgeError("Attachment was not usable. Provide a rewritten local file path string or an object with download_url.")
+    file_payload, file_id, filename = await download_chatgpt_attachment(payload)
+    return [file_payload], [file_id], [filename]
 
 
 def register_tools(mcp: Any, client: XFloorClient) -> None:
     """Register MCP tools on the provided FastMCP instance."""
+    widget_resource_uri = "ui://xfloor/post-widget"
+    widget_tool_meta = {
+        "openai/outputTemplate": widget_resource_uri,
+        "openai/toolInvocation/invoking": "Opening xFloor post widget",
+        "openai/toolInvocation/invoked": "xFloor post widget opened",
+    }
 
-    def _tool_supports_kwarg(name: str) -> bool:
-        sig = inspect.signature(mcp.tool)
-        if name in sig.parameters:
-            return True
-        return any(param.kind == inspect.Parameter.VAR_KEYWORD for param in sig.parameters.values())
+    tool_signature = inspect.signature(mcp.tool)
+    supports_meta = "_meta" in tool_signature.parameters or any(
+        param.kind == inspect.Parameter.VAR_KEYWORD for param in tool_signature.parameters.values()
+    )
+
+    def _register_post_widget_resource() -> None:
+        if not hasattr(mcp, "resource"):
+            logger.info("Widget resource registration skipped; MCP runtime has no resource API")
+            return
+
+        widget_html = _build_post_widget_html()
+        logger.info("Widget resource registered uri=%s", widget_resource_uri)
+        try:
+            @mcp.resource(widget_resource_uri, name="xfloor-post-widget", mime_type="text/html")
+            async def _xfloor_post_widget() -> str:
+                return widget_html
+            return
+        except TypeError:
+            pass
+
+        try:
+            @mcp.resource(uri=widget_resource_uri, name="xfloor-post-widget", mime_type="text/html")
+            async def _xfloor_post_widget_kwargs() -> str:
+                return widget_html
+        except TypeError:
+            logger.info("Widget resource registration failed due to incompatible runtime signature")
+
+    _register_post_widget_resource()
+
+    @mcp.tool(
+        name="xfloor_open_post_widget",
+        description="Default entry point for post/share/create intents. Opens the unified xFloor post widget for text-only or single-attachment posting.",
+        **({"_meta": widget_tool_meta} if supports_meta else {}),
+    )
+    async def xfloor_open_post_widget() -> dict[str, Any]:
+        logger.info("Widget opened for posting intent")
+        return {
+            "ok": True,
+            "message": "xFloor post widget opened. Submit text-only or one attachment from the widget.",
+            "widget": {"resource_uri": widget_resource_uri},
+        }
 
     @mcp.tool(name="xfloor_query_memory", description="Query xFloor memory")
     async def xfloor_query_memory(input: XFloorQueryMemoryInput, ctx: Any = None) -> dict[str, Any]:
@@ -480,7 +620,8 @@ def register_tools(mcp: Any, client: XFloorClient) -> None:
 
     @mcp.tool(
         name="xfloor_post_event_to_current_floor",
-        description="Use this when the user explicitly wants to create/post a text-only event in the currently active xFloor. Do not use this tool for media attachments. If the user attached media, use `xfloor_post_event_with_attachment_to_current_floor`.",
+        description="Text-only post tool for the currently active xFloor. The unified post widget is the preferred UX for all posting intents; it routes file uploads to the attachment tool automatically.",
+        **({"_meta": widget_tool_meta} if supports_meta else {}),
     )
     async def xfloor_post_event_to_current_floor(input: XFloorPostEventToCurrentFloorInput, ctx: Any = None) -> dict[str, Any]:
         logger.info("xfloor_post_event_to_current_floor invoked (text-only)")
@@ -541,18 +682,18 @@ def register_tools(mcp: Any, client: XFloorClient) -> None:
 
     _post_event_attachment_tool_kwargs: dict[str, Any] = {
         "name": "xfloor_post_event_with_attachment_to_current_floor",
-        "description": "Use this when the user explicitly wants to create/post an event with one attached image or PDF in the currently active xFloor. Pass the uploaded file in top-level `attachment` only. In this runtime, `attachment` may be a rewritten local file path string or an official object (`download_url`, `file_id`). Do not use nested wrappers like `{path: ...}`. Do not invent base64, image_url, or image_path.",
+        "description": "Post an event with exactly one uploaded image or PDF in the currently active xFloor. The widget must pass top-level attachment={file_id, download_url}. Do not use local paths, base64, image_url, image_path, or nested wrappers.",
     }
-    tool_signature = inspect.signature(mcp.tool)
-    if _tool_supports_kwarg("_meta"):
-        _post_event_attachment_tool_kwargs["_meta"] = {"openai/fileParams": ["attachment"]}
-    if _tool_supports_kwarg("file_arg_rewrite_paths"):
-        _post_event_attachment_tool_kwargs["file_arg_rewrite_paths"] = ["attachment"]
+    if supports_meta:
+        _post_event_attachment_tool_kwargs["_meta"] = {
+            "openai/fileParams": ["attachment"],
+            **widget_tool_meta,
+        }
 
     @mcp.tool(**_post_event_attachment_tool_kwargs)
     async def xfloor_post_event_with_attachment_to_current_floor(
         description: str,
-        attachment: XFloorHybridAttachmentParam,
+        attachment: XFloorChatGPTAttachmentParam,
         title: str | None = None,
         block_id: str | None = None,
         block_type: str | None = "note",
@@ -564,12 +705,7 @@ def register_tools(mcp: Any, client: XFloorClient) -> None:
         ctx: Any = None,
     ) -> dict[str, Any]:
         logger.info("xfloor_post_event_with_attachment_to_current_floor invoked")
-        logger.info("Attachment input kind=%s", "local_path" if isinstance(attachment, str) else "official_object")
-        logger.info(
-            "Attachment rewrite config active=%s proxied_mounts_detected=%s",
-            "file_arg_rewrite_paths" in _post_event_attachment_tool_kwargs,
-            "unknown",
-        )
+        logger.info("Widget attachment submit path used")
         token = _extract_auth_token(ctx, None)
         floor = _resolve_active_floor_id()
         user_id = _require_context_user_id()
@@ -595,7 +731,7 @@ def register_tools(mcp: Any, client: XFloorClient) -> None:
         normalized_title = payload["title"]
 
         try:
-            chatgpt_files_payload, attachment_file_ids, attachment_filenames, attachment_source = await _resolve_attachment_input(
+            chatgpt_files_payload, attachment_file_ids, attachment_filenames = await _resolve_attachment_input(
                 attachment
             )
         except AttachmentBridgeError as exc:
@@ -610,7 +746,7 @@ def register_tools(mcp: Any, client: XFloorClient) -> None:
                 "verification_required": False,
                 "attachment_bridge_failed": True,
                 "attachments_received": 0,
-                "message": "Attachment was provided, but file handoff was unusable (rewrite/reference/download failed).",
+                "message": "Attachment upload failed. The widget must provide attachment.file_id and attachment.download_url.",
                 "error": str(exc),
             }
 
@@ -663,7 +799,6 @@ def register_tools(mcp: Any, client: XFloorClient) -> None:
             "attachments_received": 1,
             "attachment_file_ids": attachment_file_ids,
             "attachment_filenames": attachment_filenames,
-            "attachment_source": attachment_source,
             "event": {
                 "title": normalized_title,
                 "description": description,

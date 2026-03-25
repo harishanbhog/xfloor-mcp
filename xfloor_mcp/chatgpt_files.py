@@ -1,8 +1,4 @@
-"""Helpers for ChatGPT MCP file parameters.
-
-Converts ChatGPT top-level file params into the internal xFloor multipart file
-format expected by ``XFloorClient.create_event``.
-"""
+"""Helpers for strict ChatGPT widget attachment handling."""
 
 from __future__ import annotations
 
@@ -52,132 +48,43 @@ def _mime_from_headers_or_filename(headers: httpx.Headers, filename: str) -> str
     return (guessed or "application/octet-stream").lower()
 
 
-def _coerce_attachment_items(
-    attachment: dict[str, Any] | str | None,
-    attachments: list[dict[str, Any] | str] | None,
-) -> list[dict[str, Any] | str]:
-    items: list[dict[str, Any] | str] = []
-    if attachment is not None:
-        items.append(attachment)
-    if attachments:
-        items.extend(attachments)
-    return items
-
-
-def _extract_local_path(item: dict[str, Any] | str) -> str:
-    if isinstance(item, str):
-        return item.strip()
-    for key in ("file_path", "path", "local_path"):
-        candidate = str(item.get(key) or "").strip()
-        if candidate:
-            return candidate
-    return ""
-
-
-async def download_chatgpt_attachments(
-    attachment: dict[str, Any] | str | None,
-    attachments: list[dict[str, Any] | str] | None,
+async def download_chatgpt_attachment(
+    attachment: dict[str, Any],
     *,
     timeout_s: float = 20.0,
-    allow_local_path_fallback: bool = False,
-) -> tuple[list[dict[str, str]] | None, list[str], list[str]]:
-    """Download/read ChatGPT attachment params and convert to xFloor file objects.
+) -> tuple[dict[str, str], str, str]:
+    """Download one strict widget attachment and map it to xFloor multipart format."""
 
-    Official MCP attachment contract:
-    - top-level file params containing ``download_url`` and optional ``file_id``
+    download_url = str(attachment.get("download_url") or "").strip()
+    file_id = str(attachment.get("file_id") or "").strip()
+    if not file_id:
+        raise AttachmentBridgeError("Attachment object is missing required field 'file_id'.")
+    if not download_url:
+        raise AttachmentBridgeError(
+            "Attachment object is missing required field 'download_url'. Widget must call getFileDownloadUrl first."
+        )
 
-    Dev-only fallback (disabled by default):
-    - local path references (for example ``/mnt/data/example.jpg``)
-
-    Returns: (files_payload, file_ids, filenames)
-    """
-
-    items = _coerce_attachment_items(attachment, attachments)
-    if not items:
-        return None, [], []
-
-    converted: list[dict[str, str]] = []
-    file_ids: list[str] = []
-    filenames: list[str] = []
-
-    logger.info("Attachment bridge: official_params_received=%s", True)
-
+    logger.info("Attachment bridge: file download initiated file_id=%s", file_id)
     async with httpx.AsyncClient(timeout=timeout_s) as client:
-        for idx, item in enumerate(items, start=1):
-            download_url = ""
-            file_id = ""
-            if isinstance(item, dict):
-                download_url = str(item.get("download_url") or "").strip()
-                file_id = str(item.get("file_id") or "").strip()
+        try:
+            response = await client.get(download_url)
+            response.raise_for_status()
+        except Exception as exc:  # noqa: BLE001
+            raise AttachmentBridgeError(
+                f"Could not fetch ChatGPT attachment bytes for file_id '{file_id}'."
+            ) from exc
 
-            if download_url:
-                logger.info("Attachment bridge source=download_url file_id=%s", file_id or "unknown")
-                try:
-                    response = await client.get(download_url)
-                    response.raise_for_status()
-                except Exception as exc:  # noqa: BLE001
-                    raise AttachmentBridgeError(
-                        f"Could not fetch ChatGPT attachment for file_id '{file_id or 'unknown'}'."
-                    ) from exc
+    filename = _filename_from_headers_or_url(response.headers, download_url, 1)
+    mime_type = _mime_from_headers_or_filename(response.headers, filename)
+    raw_bytes = response.content
+    logger.info("Attachment bridge: file download completed file_id=%s filename=%s", file_id, filename)
 
-                filename = _filename_from_headers_or_url(response.headers, download_url, idx)
-                mime_type = _mime_from_headers_or_filename(response.headers, filename)
-                raw_bytes = response.content
-            elif file_id:
-                logger.info("Attachment bridge source=file_id file_id=%s", file_id)
-                api_key = os.getenv("OPENAI_API_KEY", "").strip()
-                if not api_key:
-                    raise AttachmentBridgeError(
-                        "Attachment provided with file_id but no download_url. OPENAI_API_KEY is required to resolve file_id in this runtime."
-                    )
-                endpoint = f"https://api.openai.com/v1/files/{file_id}/content"
-                try:
-                    response = await client.get(endpoint, headers={"Authorization": f"Bearer {api_key}"})
-                    response.raise_for_status()
-                except Exception as exc:  # noqa: BLE001
-                    raise AttachmentBridgeError(
-                        f"Could not fetch ChatGPT attachment content for file_id '{file_id}'."
-                    ) from exc
-                filename = _filename_from_headers_or_url(response.headers, endpoint, idx)
-                if "." not in filename:
-                    filename = f"{filename}.bin"
-                mime_type = _mime_from_headers_or_filename(response.headers, filename)
-                raw_bytes = response.content
-            else:
-                if not allow_local_path_fallback:
-                    raise AttachmentBridgeError(
-                        "Attachment requires official ChatGPT file params. Expected top-level attachment fields with download_url/file_id."
-                    )
-
-                local_path = _extract_local_path(item)
-                if not local_path:
-                    raise AttachmentBridgeError(
-                        "Attachment bridge dev fallback is enabled, but no readable local path was provided."
-                    )
-                if not os.path.exists(local_path) or not os.path.isfile(local_path):
-                    raise AttachmentBridgeError(
-                        "Attachment bridge dev fallback path is not readable in this MCP environment."
-                    )
-
-                logger.info("Attachment bridge source=local_path filename=%s", os.path.basename(local_path))
-                try:
-                    with open(local_path, "rb") as f:
-                        raw_bytes = f.read()
-                except Exception as exc:  # noqa: BLE001
-                    raise AttachmentBridgeError(
-                        "Attachment bridge dev fallback could not read provided local path."
-                    ) from exc
-                filename = os.path.basename(local_path) or f"attachment-{idx}"
-                mime_type = (mimetypes.guess_type(filename)[0] or "application/octet-stream").lower()
-
-            converted.append(
-                {
-                    "filename": filename,
-                    "content_base64": base64.b64encode(raw_bytes).decode("ascii"),
-                    "mime_type": mime_type,
-                }
-            )
-            file_ids.append(file_id)
-            filenames.append(filename)
-
-    return converted, file_ids, filenames
+    return (
+        {
+            "filename": filename,
+            "content_base64": base64.b64encode(raw_bytes).decode("ascii"),
+            "mime_type": mime_type,
+        },
+        file_id,
+        filename,
+    )
