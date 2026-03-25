@@ -45,7 +45,6 @@ if HAS_DEPS:
         XFloorQueryMemoryInput,
         XFloorRecentEventsInput,
         XFloorSetActiveFloorInput,
-        _build_query_results_widget_html,
         normalize_query_response,
         register_tools,
     )
@@ -106,32 +105,15 @@ def test_normalize_query_response_fails_soft_on_malformed_item_text() -> None:
     assert meta["malformedItemTextCount"] == 1
 
 
-def test_query_results_widget_template_contains_chip_render_and_floor_switch_action() -> None:
-    if not HAS_DEPS:
-        pytest.skip("requires pydantic/httpx")
-    html = _build_query_results_widget_html()
-    assert "relevantFloors" in html
-    assert "xfloor_set_active_floor" in html
-    assert "callTool" in html
-
-
 @pytest.mark.skipif(not HAS_DEPS, reason="requires pydantic/httpx")
 class TestToolsSmoke:
     class _FakeMCP:
         def __init__(self) -> None:
             self.registry: dict[str, Callable[..., Any]] = {}
-            self.resources: dict[str, Callable[..., Any]] = {}
 
         def tool(self, name: str, description: str, **kwargs: Any):
             def decorator(func):
                 self.registry[name] = func
-                return func
-
-            return decorator
-
-        def resource(self, uri: str, **kwargs: Any):
-            def decorator(func):
-                self.resources[uri] = func
                 return func
 
             return decorator
@@ -169,7 +151,6 @@ class TestToolsSmoke:
             "xfloor_query_current_floor",
             "xfloor_post_event_to_current_floor",
         }
-        assert "ui://xfloor/query-results-widget" in mcp.resources
 
         assert get_type_hints(mcp.registry["xfloor_query_memory"])["input"] is XFloorQueryMemoryInput
         assert get_type_hints(mcp.registry["xfloor_create_event"])["input"] is XFloorCreateEventInput
@@ -392,6 +373,8 @@ class TestToolsSmoke:
         assert query_result["structuredContent"]["activeFloor"]["id"] == "phari"
         assert query_result["structuredContent"]["bestMatch"]["floorUrl"] == "phari.xfloor.ai"
         assert query_result["content"][0]["type"] == "text"
+        assert "Related floors you can switch to" in query_result["content"][0]["text"]
+        assert query_result["_meta"]["ui_rendering_mode"] == "text_fallback_for_remote_mcp"
         assert post_result["posted"] is True
 
     @pytest.mark.asyncio
