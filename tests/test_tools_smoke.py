@@ -57,6 +57,18 @@ def test_floor_alias_normalization_works_for_plain_and_at_prefixed_refs() -> Non
     assert resolve_floor_reference(floor_ref="@croma")["floor_id"] == "croma"
 
 
+def test_set_active_floor_input_accepts_string_and_common_alias_keys() -> None:
+    if not HAS_DEPS:
+        pytest.skip("requires pydantic/httpx")
+    from_string = XFloorSetActiveFloorInput.model_validate("@phari")
+    assert from_string.floor_ref == "@phari"
+    assert from_string.floor_id is None
+
+    from_aliases = XFloorSetActiveFloorInput.model_validate({"floor": "phari", "id": "phari-id"})
+    assert from_aliases.floor_ref == "phari"
+    assert from_aliases.floor_id == "phari-id"
+
+
 @pytest.mark.skipif(not HAS_DEPS, reason="requires pydantic/httpx")
 class TestToolsSmoke:
     class _FakeMCP:

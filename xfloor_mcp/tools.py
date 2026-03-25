@@ -6,7 +6,7 @@ import json
 import logging
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from .active_floor_state import get_active_floor_state, resolve_floor_reference, set_active_floor_state
 from .request_context import get_active_floor_id, get_auth_mode, get_auth_token, get_user_id, get_xfloor_service_token
@@ -73,6 +73,22 @@ class XFloorWaitForIngestionInput(BaseModel):
 class XFloorSetActiveFloorInput(BaseModel):
     floor_ref: str | None = Field(default=None, description="Floor reference like phari, @phari, croma, or @croma")
     floor_id: str | None = Field(default=None, description="Optional direct floor ID override")
+
+    @model_validator(mode="before")
+    @classmethod
+    def _coerce_short_forms(cls, value: Any) -> Any:
+        if isinstance(value, str):
+            normalized = value.strip()
+            return {"floor_ref": normalized} if normalized else {}
+        if isinstance(value, dict):
+            candidate_floor_ref = value.get("floor_ref") or value.get("floor") or value.get("name")
+            candidate_floor_id = value.get("floor_id") or value.get("id")
+            if candidate_floor_ref is not None or candidate_floor_id is not None:
+                return {
+                    "floor_ref": candidate_floor_ref,
+                    "floor_id": candidate_floor_id,
+                }
+        return value
 
 
 class XFloorQueryCurrentFloorInput(BaseModel):
