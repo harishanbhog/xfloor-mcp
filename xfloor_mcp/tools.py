@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import inspect
 import logging
 from typing import Any
 
@@ -238,8 +239,172 @@ def _queued_status(compact_result: dict[str, Any]) -> tuple[str, str]:
     return status, message
 
 
+def _parse_item_text(item_text: Any) -> tuple[dict[str, Any], bool]:
+    if isinstance(item_text, dict):
+        return item_text, False
+    if not isinstance(item_text, str):
+        return {}, False
+    raw = item_text.strip()
+    if not raw:
+        return {}, False
+    try:
+        parsed = json.loads(raw)
+    except Exception:  # noqa: BLE001
+        return {}, True
+    if isinstance(parsed, dict):
+        return parsed, False
+    return {}, False
+
+
+def _to_score(value: Any) -> float:
+    try:
+        return float(value)
+    except Exception:  # noqa: BLE001
+        return 0.0
+
+
+def normalize_query_response(
+    raw_result: dict[str, Any],
+    *,
+    active_floor: dict[str, str] | None = None,
+    original_query: str | None = None,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    payload = raw_result.get("result") if isinstance(raw_result.get("result"), dict) else raw_result
+    answer = str(payload.get("answer") or raw_result.get("answer") or "").strip()
+    items = payload.get("items")
+    if not isinstance(items, list):
+        items = raw_result.get("items") if isinstance(raw_result.get("items"), list) else []
+
+    normalized_by_floor: dict[str, dict[str, Any]] = {}
+    normalized_items_raw: list[dict[str, Any]] = []
+    malformed_count = 0
+
+    for idx, item in enumerate(items):
+        if not isinstance(item, dict):
+            continue
+        parsed_text, malformed = _parse_item_text(item.get("text"))
+        if malformed:
+            malformed_count += 1
+        floor_uid = str(
+            parsed_text.get("from_floor_uid")
+            or parsed_text.get("floor_uid")
+            or parsed_text.get("floorUid")
+            or item.get("from_floor_uid")
+            or item.get("floor_uid")
+            or ""
+        ).strip()
+        floor_name = str(parsed_text.get("floor") or parsed_text.get("floorName") or parsed_text.get("name") or "").strip()
+        floor_description = str(parsed_text.get("floor_details") or parsed_text.get("floorDescription") or "").strip()
+        post_title = str(parsed_text.get("post_title") or parsed_text.get("postTitle") or parsed_text.get("title") or "").strip()
+        post_description = str(
+            parsed_text.get("post_details") or parsed_text.get("postDescription") or item.get("text") or ""
+        ).strip()
+        score = _to_score(parsed_text.get("score") if parsed_text.get("score") is not None else item.get("score"))
+        floor_url = f"{floor_uid}.xfloor.ai" if floor_uid else ""
+
+        normalized = {
+            "floorName": floor_name,
+            "floorDescription": floor_description,
+            "postTitle": post_title,
+            "postDescription": post_description,
+            "score": score,
+            "floorUrl": floor_url,
+            "floorUid": floor_uid,
+        }
+        normalized_items_raw.append({"index": idx, **normalized})
+        dedupe_key = floor_uid or floor_name or f"item-{idx}"
+        existing = normalized_by_floor.get(dedupe_key)
+        if existing is None or score > _to_score(existing.get("score")):
+            normalized_by_floor[dedupe_key] = normalized
+
+    relevant_floors = sorted(normalized_by_floor.values(), key=lambda row: _to_score(row.get("score")), reverse=True)
+    best_match = relevant_floors[0] if relevant_floors else None
+
+    structured_content = {
+        "activeFloor": {
+            "id": (active_floor or {}).get("floor_id"),
+            "name": (active_floor or {}).get("floor_ref"),
+        },
+        "query": original_query,
+        "answer": answer,
+        "bestMatch": best_match,
+        "relevantFloors": relevant_floors,
+        "resultCount": len(relevant_floors),
+    }
+    meta = {
+        "rawItemCount": len(items),
+        "malformedItemTextCount": malformed_count,
+        "normalizedItemsRaw": normalized_items_raw,
+    }
+    return structured_content, meta
+
+
+def _build_query_results_widget_html() -> str:
+    return """<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <style>
+      body { font-family: system-ui, sans-serif; margin: 8px 0; }
+      #chips { display: flex; flex-wrap: wrap; gap: 6px; }
+      button { border: 1px solid #ddd; background: #fafafa; border-radius: 999px; padding: 4px 10px; cursor: pointer; }
+      .hint { font-size: 12px; color: #666; margin-bottom: 6px; }
+    </style>
+  </head>
+  <body>
+    <div class="hint">Relevant floors</div>
+    <div id="chips"></div>
+    <script>
+      const api = window.openai || {};
+      const sc = (window.structuredContent || window.__structuredContent || api?.toolOutput?.structuredContent || {});
+      const floors = Array.isArray(sc.relevantFloors) ? sc.relevantFloors : [];
+      const chips = document.getElementById("chips");
+      if (!floors.length) {
+        document.querySelector(".hint").style.display = "none";
+      }
+      floors.forEach((floor) => {
+        const btn = document.createElement("button");
+        btn.textContent = floor.floorName || floor.floorUid || "Floor";
+        if (floor.floorDescription) btn.title = floor.floorDescription;
+        btn.addEventListener("click", async () => {
+          if (typeof api.callTool !== "function") return;
+          await api.callTool("xfloor_set_active_floor", { floor_id: floor.floorUid || undefined, floor_ref: floor.floorName || undefined });
+        });
+        chips.appendChild(btn);
+      });
+    </script>
+  </body>
+</html>"""
+
+
 def register_tools(mcp: Any, client: XFloorClient) -> None:
     """Register MCP tools on the provided FastMCP instance."""
+    query_widget_uri = "ui://xfloor/query-results-widget"
+
+    tool_signature = inspect.signature(mcp.tool)
+    supports_meta = "_meta" in tool_signature.parameters or any(
+        param.kind == inspect.Parameter.VAR_KEYWORD for param in tool_signature.parameters.values()
+    )
+
+    def _register_query_results_widget_resource() -> None:
+        if not hasattr(mcp, "resource"):
+            return
+        widget_html = _build_query_results_widget_html()
+        try:
+            @mcp.resource(query_widget_uri, name="xfloor-query-results", mime_type="text/html")
+            async def _query_widget() -> str:
+                return widget_html
+            return
+        except TypeError:
+            pass
+        try:
+            @mcp.resource(query_widget_uri)
+            async def _query_widget_uri_only() -> str:
+                return widget_html
+        except TypeError:
+            logger.info("Query widget resource registration skipped due to incompatible runtime signature")
+
+    _register_query_results_widget_resource()
 
     @mcp.tool(name="xfloor_query_memory", description="Query xFloor memory")
     async def xfloor_query_memory(input: XFloorQueryMemoryInput, ctx: Any = None) -> dict[str, Any]:
@@ -325,10 +490,17 @@ def register_tools(mcp: Any, client: XFloorClient) -> None:
             "state_scope": "in_memory_session",
         }
 
-    @mcp.tool(
-        name="xfloor_query_current_floor",
-        description="Use this when the user wants to ask a question about the currently active xFloor. This tool uses the active floor selected by xfloor_set_active_floor, with the request header acting only as an optional override/debug path.",
-    )
+    _query_tool_kwargs: dict[str, Any] = {
+        "name": "xfloor_query_current_floor",
+        "description": "Use this when the user wants to ask a question about the currently active xFloor. This tool uses the active floor selected by xfloor_set_active_floor, with the request header acting only as an optional override/debug path.",
+    }
+    if supports_meta:
+        _query_tool_kwargs["_meta"] = {
+            "ui": {"resourceUri": query_widget_uri},
+            "openai/outputTemplate": query_widget_uri,
+        }
+
+    @mcp.tool(**_query_tool_kwargs)
     async def xfloor_query_current_floor(input: XFloorQueryCurrentFloorInput, ctx: Any = None) -> dict[str, Any]:
         token = _extract_auth_token(ctx, None)
         floor = _resolve_active_floor_id()
@@ -343,12 +515,31 @@ def register_tools(mcp: Any, client: XFloorClient) -> None:
             include_metadata="1",
             summary_needed="1",
         )
+        compact_result = _compact(result)
+        logger.info("Query raw response received for normalization")
+        structured_content, widget_meta = normalize_query_response(
+            compact_result,
+            active_floor=floor,
+            original_query=input.query,
+        )
+        logger.info(
+            "Query normalization complete normalized_floors=%s malformed_items=%s",
+            structured_content["resultCount"],
+            widget_meta["malformedItemTextCount"],
+        )
+        answer_text = structured_content.get("answer") or "Here’s what I found."
+        if structured_content["resultCount"] > 0:
+            answer_text = f"{answer_text}\n\nI also found related floors below."
         return {
-            "floor_id": floor["floor_id"],
-            "floor_ref": floor["floor_ref"],
-            "floor_source": floor["source"],
-            "query": input.query,
-            "result": _compact(result),
+            "content": [{"type": "text", "text": answer_text}],
+            "structuredContent": structured_content,
+            "_meta": {
+                "floor_id": floor["floor_id"],
+                "floor_ref": floor["floor_ref"],
+                "floor_source": floor["source"],
+                "queryWidgetPayload": {"query": input.query, "resultCount": structured_content["resultCount"]},
+                **widget_meta,
+            },
         }
 
     @mcp.tool(

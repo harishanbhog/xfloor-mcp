@@ -45,6 +45,8 @@ if HAS_DEPS:
         XFloorQueryMemoryInput,
         XFloorRecentEventsInput,
         XFloorSetActiveFloorInput,
+        _build_query_results_widget_html,
+        normalize_query_response,
         register_tools,
     )
     from xfloor_mcp.xfloor_client import XFloorClient
@@ -68,15 +70,68 @@ def test_set_active_floor_input_accepts_string_and_common_alias_keys() -> None:
     assert from_aliases.floor_id == "phari-id"
 
 
+def test_normalize_query_response_sorts_and_builds_floor_urls() -> None:
+    if not HAS_DEPS:
+        pytest.skip("requires pydantic/httpx")
+    structured, meta = normalize_query_response(
+        {
+            "result": {
+                "answer": "Summary",
+                "items": [
+                    {"text": json.dumps({"floor": "B", "from_floor_uid": "floor-b", "score": 0.3})},
+                    {"text": json.dumps({"floor": "A", "from_floor_uid": "floor-a", "score": 0.9})},
+                ],
+            }
+        },
+        active_floor={"floor_id": "phari", "floor_ref": "phari"},
+        original_query="What is new?",
+    )
+    assert structured["answer"] == "Summary"
+    assert structured["resultCount"] == 2
+    assert structured["bestMatch"]["floorUid"] == "floor-a"
+    assert structured["relevantFloors"][0]["floorUrl"] == "floor-a.xfloor.ai"
+    assert meta["malformedItemTextCount"] == 0
+
+
+def test_normalize_query_response_fails_soft_on_malformed_item_text() -> None:
+    if not HAS_DEPS:
+        pytest.skip("requires pydantic/httpx")
+    structured, meta = normalize_query_response(
+        {"result": {"answer": "Summary", "items": [{"text": "{bad json"}]}},
+        active_floor=None,
+        original_query="q",
+    )
+    assert structured["answer"] == "Summary"
+    assert structured["resultCount"] == 1
+    assert meta["malformedItemTextCount"] == 1
+
+
+def test_query_results_widget_template_contains_chip_render_and_floor_switch_action() -> None:
+    if not HAS_DEPS:
+        pytest.skip("requires pydantic/httpx")
+    html = _build_query_results_widget_html()
+    assert "relevantFloors" in html
+    assert "xfloor_set_active_floor" in html
+    assert "callTool" in html
+
+
 @pytest.mark.skipif(not HAS_DEPS, reason="requires pydantic/httpx")
 class TestToolsSmoke:
     class _FakeMCP:
         def __init__(self) -> None:
             self.registry: dict[str, Callable[..., Any]] = {}
+            self.resources: dict[str, Callable[..., Any]] = {}
 
         def tool(self, name: str, description: str, **kwargs: Any):
             def decorator(func):
                 self.registry[name] = func
+                return func
+
+            return decorator
+
+        def resource(self, uri: str, **kwargs: Any):
+            def decorator(func):
+                self.resources[uri] = func
                 return func
 
             return decorator
@@ -114,6 +169,7 @@ class TestToolsSmoke:
             "xfloor_query_current_floor",
             "xfloor_post_event_to_current_floor",
         }
+        assert "ui://xfloor/query-results-widget" in mcp.resources
 
         assert get_type_hints(mcp.registry["xfloor_query_memory"])["input"] is XFloorQueryMemoryInput
         assert get_type_hints(mcp.registry["xfloor_create_event"])["input"] is XFloorCreateEventInput
@@ -302,7 +358,14 @@ class TestToolsSmoke:
         class _FakeClient:
             async def query_memory(self, token: str, **kwargs: Any) -> dict[str, Any]:
                 assert kwargs["floor_ids"] == ["phari"]
-                return {"answers": ["ok"]}
+                return {
+                    "result": {
+                        "answer": "Looks good.",
+                        "items": [
+                            {"text": json.dumps({"floor": "Phari", "from_floor_uid": "phari", "score": 0.9})}
+                        ],
+                    }
+                }
 
             async def create_event(self, token: str, **kwargs: Any) -> dict[str, Any]:
                 payload = json.loads(kwargs["input_info"])
@@ -326,7 +389,9 @@ class TestToolsSmoke:
         )
 
         assert set_result["message"] == "Active floor set to phari"
-        assert query_result["floor_source"] == "session_state"
+        assert query_result["structuredContent"]["activeFloor"]["id"] == "phari"
+        assert query_result["structuredContent"]["bestMatch"]["floorUrl"] == "phari.xfloor.ai"
+        assert query_result["content"][0]["type"] == "text"
         assert post_result["posted"] is True
 
     @pytest.mark.asyncio
