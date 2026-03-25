@@ -278,9 +278,12 @@ This repo now exposes an additive **v1 ChatGPT-facing MCP surface** on top of th
 
 5. `xfloor_post_event_with_attachment_to_current_floor`
    - Post an event with exactly **one** official ChatGPT attachment.
-   - Top-level file param only: `attachment` (`{download_url, file_id}`).
-   - MCP downloads the official file param via `download_url`, converts to `filename/content_base64/mime_type`, and forwards to xFloor multipart upload.
-   - Do **not** invent local paths, base64 payloads, `image_url`, or `image_path` substitutes in ChatGPT-facing calls.
+   - Top-level attachment field only: `attachment`.
+   - `attachment` may be either:
+     - local uploaded file path string in this runtime (e.g. `/mnt/data/luminous.jpg`), or
+     - official file object `{download_url, file_id}`.
+   - MCP loads/downloads the attachment, converts to `filename/content_base64/mime_type`, and forwards to xFloor multipart upload.
+   - Do **not** invent base64 payloads, `image_url`, or `image_path` substitutes in ChatGPT-facing calls.
    - Internal/direct callers can still use legacy/internal `files` handling through non-ChatGPT tool paths when intentionally bypassing ChatGPT file params.
 
 ### Active-floor precedence rules

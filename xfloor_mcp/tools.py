@@ -44,6 +44,7 @@ class XFloorChatGPTAttachmentInput(BaseModel):
 
 
 XFloorChatGPTAttachmentParam = XFloorChatGPTAttachmentInput
+XFloorHybridAttachmentParam = XFloorChatGPTAttachmentInput | str
 
 
 class XFloorCreateEventInput(BaseModel):
@@ -123,8 +124,8 @@ class XFloorPostEventWithAttachmentToCurrentFloorInput(BaseModel):
     start_time: str | None = Field(default=None, description="Optional start time")
     end_date: str | None = Field(default=None, description="Optional end date")
     end_time: str | None = Field(default=None, description="Optional end time")
-    attachment: XFloorChatGPTAttachmentParam = Field(
-        description="Single official ChatGPT file param object ({download_url, file_id}).",
+    attachment: XFloorHybridAttachmentParam = Field(
+        description="Single attachment input: local uploaded file path string OR official ChatGPT file param object ({download_url, file_id}).",
     )
 
 
@@ -497,7 +498,7 @@ def register_tools(mcp: Any, client: XFloorClient) -> None:
 
     _post_event_attachment_tool_kwargs: dict[str, Any] = {
         "name": "xfloor_post_event_with_attachment_to_current_floor",
-        "description": "Use this when the user explicitly wants to create/post an event with one attached image or PDF in the currently active xFloor. Pass the uploaded file only through top-level `attachment` using the official ChatGPT file param object (`download_url`, `file_id`). Do not invent local paths, base64 payloads, image_url/image_path, or any substitutes. If no official file param is available, do not guess.",
+        "description": "Use this when the user explicitly wants to create/post an event with one attached image or PDF in the currently active xFloor. Put the uploaded file only in top-level `attachment`. `attachment` may be either a local uploaded file path string (for this runtime) or an official ChatGPT file param object (`download_url`, `file_id`). Do not invent base64, image_url/image_path, or alternate attachment fields.",
     }
     tool_signature = inspect.signature(mcp.tool)
     if "_meta" in tool_signature.parameters:
@@ -508,6 +509,7 @@ def register_tools(mcp: Any, client: XFloorClient) -> None:
         input: XFloorPostEventWithAttachmentToCurrentFloorInput, ctx: Any = None
     ) -> dict[str, Any]:
         logger.info("xfloor_post_event_with_attachment_to_current_floor invoked")
+        logger.info("Attachment input kind=%s", "local_path" if isinstance(input.attachment, str) else "official_object")
         token = _extract_auth_token(ctx, None)
         floor = _resolve_active_floor_id()
         user_id = _require_context_user_id()
@@ -533,10 +535,15 @@ def register_tools(mcp: Any, client: XFloorClient) -> None:
         normalized_title = payload["title"]
 
         try:
+            raw_attachment: dict[str, Any] | str
+            if isinstance(input.attachment, str):
+                raw_attachment = input.attachment
+            else:
+                raw_attachment = input.attachment.model_dump()
             chatgpt_files_payload, attachment_file_ids, attachment_filenames = await download_chatgpt_attachments(
-                input.attachment.model_dump(),
+                raw_attachment,
                 None,
-                allow_local_path_fallback=False,
+                allow_local_path_fallback=True,
             )
         except AttachmentBridgeError as exc:
             logger.info("Attachment bridge failure type=%s", exc.__class__.__name__)
@@ -587,8 +594,10 @@ def register_tools(mcp: Any, client: XFloorClient) -> None:
 
         input_info = json.dumps(payload)
         result = await client.create_event(token, input_info=input_info, files=files_payload)
+        logger.info("Downstream xFloor upload invoked for attachment tool")
         compact_result = _compact(result)
         status, message = _queued_status(compact_result)
+        attachment_source = "local_path" if isinstance(input.attachment, str) else "download_url"
 
         return {
             "floor_id": floor["floor_id"],
@@ -602,6 +611,7 @@ def register_tools(mcp: Any, client: XFloorClient) -> None:
             "attachments_received": 1,
             "attachment_file_ids": attachment_file_ids,
             "attachment_filenames": attachment_filenames,
+            "attachment_source": attachment_source,
             "event": {
                 "title": normalized_title,
                 "description": input.description,
