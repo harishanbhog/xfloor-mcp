@@ -465,6 +465,37 @@ class TestToolsSmoke:
         assert result["attachment_bridge_failed"] is True
 
     @pytest.mark.asyncio
+    async def test_post_event_with_attachment_accepts_file_id_only_object_when_resolver_supports_it(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        mcp = self._FakeMCP()
+        set_auth_token("ctx-token")
+        set_user_id("ctx-user")
+        set_app_id("ctx-app")
+        set_active_floor_id(None)
+
+        async def _fake_download(single: dict[str, Any] | str | None, many: list[dict[str, Any] | str] | None, timeout_s: float = 20.0, allow_local_path_fallback: bool = False):
+            assert isinstance(single, dict)
+            assert single.get("file_id") == "file_abc"
+            return ([{"filename": "from-file-id.jpg", "content_base64": "aGVsbG8=", "mime_type": "image/jpeg"}], ["file_abc"], ["from-file-id.jpg"])
+
+        monkeypatch.setattr("xfloor_mcp.tools.download_chatgpt_attachments", _fake_download)
+
+        class _FakeClient:
+            async def create_event(self, token: str, **kwargs: Any) -> dict[str, Any]:
+                assert len(kwargs["files"]) == 1
+                return {"ok": True}
+
+        register_tools(mcp=mcp, client=_FakeClient())
+        await mcp.registry["xfloor_set_active_floor"](XFloorSetActiveFloorInput(floor_ref="@phari"), None)
+        result = await mcp.registry["xfloor_post_event_with_attachment_to_current_floor"](
+            title="File ID",
+            description="testing file id",
+            attachment={"file_id": "file_abc"},
+            ctx=None,
+        )
+        assert result["posted"] is True
+        assert result["attachments_received"] == 1
+
+    @pytest.mark.asyncio
     async def test_post_event_with_attachment_returns_structured_error_on_chatgpt_download_failure(self, monkeypatch: pytest.MonkeyPatch) -> None:
         mcp = self._FakeMCP()
         set_auth_token("ctx-token")

@@ -328,7 +328,12 @@ async def _resolve_attachment_input(
         )
         return files, file_ids, filenames, "download_url"
     if file_id:
-        raise AttachmentBridgeError("Attachment file_id was provided without download_url; cannot resolve file bytes in this runtime.")
+        files, file_ids, filenames = await download_chatgpt_attachments(
+            payload,
+            None,
+            allow_local_path_fallback=True,
+        )
+        return files, file_ids, filenames, "file_id"
     raise AttachmentBridgeError("Attachment was not usable. Provide a rewritten local file path string or an object with download_url.")
 
 

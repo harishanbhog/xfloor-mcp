@@ -123,6 +123,26 @@ async def download_chatgpt_attachments(
                 filename = _filename_from_headers_or_url(response.headers, download_url, idx)
                 mime_type = _mime_from_headers_or_filename(response.headers, filename)
                 raw_bytes = response.content
+            elif file_id:
+                logger.info("Attachment bridge source=file_id file_id=%s", file_id)
+                api_key = os.getenv("OPENAI_API_KEY", "").strip()
+                if not api_key:
+                    raise AttachmentBridgeError(
+                        "Attachment provided with file_id but no download_url. OPENAI_API_KEY is required to resolve file_id in this runtime."
+                    )
+                endpoint = f"https://api.openai.com/v1/files/{file_id}/content"
+                try:
+                    response = await client.get(endpoint, headers={"Authorization": f"Bearer {api_key}"})
+                    response.raise_for_status()
+                except Exception as exc:  # noqa: BLE001
+                    raise AttachmentBridgeError(
+                        f"Could not fetch ChatGPT attachment content for file_id '{file_id}'."
+                    ) from exc
+                filename = _filename_from_headers_or_url(response.headers, endpoint, idx)
+                if "." not in filename:
+                    filename = f"{filename}.bin"
+                mime_type = _mime_from_headers_or_filename(response.headers, filename)
+                raw_bytes = response.content
             else:
                 if not allow_local_path_fallback:
                     raise AttachmentBridgeError(

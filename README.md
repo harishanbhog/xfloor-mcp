@@ -282,6 +282,7 @@ This repo now exposes an additive **v1 ChatGPT-facing MCP surface** on top of th
    - `attachment` may be either:
      - local uploaded file path string in this runtime (e.g. `/mnt/data/luminous.jpg`), or
      - official file object `{download_url, file_id}`.
+   - If only `file_id` is provided, MCP attempts OpenAI file-content resolution using `OPENAI_API_KEY`.
    - `attachment` is a top-level field (not nested under `input`).
    - MCP tool registration marks `attachment` as a file-arg rewrite path when the runtime supports `file_arg_rewrite_paths`.
    - MCP loads/downloads the attachment, converts to `filename/content_base64/mime_type`, and forwards to xFloor multipart upload.
