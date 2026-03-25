@@ -41,9 +41,6 @@ class XFloorChatGPTAttachmentInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
     download_url: str | None = Field(default=None, description="ChatGPT attachment download URL")
     file_id: str | None = Field(default=None, description="ChatGPT file identifier")
-    path: str | None = Field(default=None, description="Optional local uploaded path fallback for proxied runtimes")
-    file_path: str | None = Field(default=None, description="Optional local uploaded path fallback")
-    local_path: str | None = Field(default=None, description="Optional local uploaded path fallback")
 
 
 XFloorChatGPTAttachmentParam = XFloorChatGPTAttachmentInput
@@ -303,6 +300,38 @@ def _queued_status(compact_result: dict[str, Any]) -> tuple[str, str]:
     return status, message
 
 
+async def _resolve_attachment_input(
+    attachment: XFloorHybridAttachmentParam,
+) -> tuple[list[dict[str, str]] | None, list[str], list[str], str]:
+    if isinstance(attachment, str):
+        files, file_ids, filenames = await download_chatgpt_attachments(
+            attachment,
+            None,
+            allow_local_path_fallback=True,
+        )
+        return files, file_ids, filenames, "local_path"
+
+    if isinstance(attachment, dict):
+        try:
+            attachment = XFloorChatGPTAttachmentInput(**attachment)
+        except Exception as exc:  # noqa: BLE001
+            raise AttachmentBridgeError("Attachment object shape is invalid. Use top-level path string or object with download_url/file_id.") from exc
+
+    payload = attachment.model_dump()
+    download_url = str(payload.get("download_url") or "").strip()
+    file_id = str(payload.get("file_id") or "").strip()
+    if download_url:
+        files, file_ids, filenames = await download_chatgpt_attachments(
+            payload,
+            None,
+            allow_local_path_fallback=True,
+        )
+        return files, file_ids, filenames, "download_url"
+    if file_id:
+        raise AttachmentBridgeError("Attachment file_id was provided without download_url; cannot resolve file bytes in this runtime.")
+    raise AttachmentBridgeError("Attachment was not usable. Provide a rewritten local file path string or an object with download_url.")
+
+
 def register_tools(mcp: Any, client: XFloorClient) -> None:
     """Register MCP tools on the provided FastMCP instance."""
 
@@ -501,17 +530,18 @@ def register_tools(mcp: Any, client: XFloorClient) -> None:
 
     _post_event_attachment_tool_kwargs: dict[str, Any] = {
         "name": "xfloor_post_event_with_attachment_to_current_floor",
-        "description": "Use this when the user explicitly wants to create/post an event with one attached image or PDF in the currently active xFloor. Preferred: put the uploaded file in top-level `attachment` (official file param object). Runtime fallback: if file-arg rewrite fails in proxied mounts, pass a plain local path in `attachment_path`. Do not invent base64, image_url/image_path, or alternate attachment fields.",
+        "description": "Use this when the user explicitly wants to create/post an event with one attached image or PDF in the currently active xFloor. Pass the uploaded file in top-level `attachment` only. In this runtime, `attachment` may be a rewritten local file path string or an official object (`download_url`, `file_id`). Do not use nested wrappers like `{path: ...}`. Do not invent base64, image_url, or image_path.",
     }
     tool_signature = inspect.signature(mcp.tool)
     if "_meta" in tool_signature.parameters:
         _post_event_attachment_tool_kwargs["_meta"] = {"openai/fileParams": ["attachment"]}
+    if "file_arg_rewrite_paths" in tool_signature.parameters:
+        _post_event_attachment_tool_kwargs["file_arg_rewrite_paths"] = ["attachment"]
 
     @mcp.tool(**_post_event_attachment_tool_kwargs)
     async def xfloor_post_event_with_attachment_to_current_floor(
         description: str,
-        attachment: XFloorHybridAttachmentParam | None = None,
-        attachment_path: str | None = None,
+        attachment: XFloorHybridAttachmentParam,
         title: str | None = None,
         block_id: str | None = None,
         block_type: str | None = "note",
@@ -523,10 +553,12 @@ def register_tools(mcp: Any, client: XFloorClient) -> None:
         ctx: Any = None,
     ) -> dict[str, Any]:
         logger.info("xfloor_post_event_with_attachment_to_current_floor invoked")
-        if attachment_path and attachment_path.strip():
-            logger.info("Attachment input kind=attachment_path")
-        else:
-            logger.info("Attachment input kind=%s", "local_path" if isinstance(attachment, str) else "official_object")
+        logger.info("Attachment input kind=%s", "local_path" if isinstance(attachment, str) else "official_object")
+        logger.info(
+            "Attachment rewrite config active=%s proxied_mounts_detected=%s",
+            "file_arg_rewrite_paths" in tool_signature.parameters,
+            "unknown",
+        )
         token = _extract_auth_token(ctx, None)
         floor = _resolve_active_floor_id()
         user_id = _require_context_user_id()
@@ -552,21 +584,8 @@ def register_tools(mcp: Any, client: XFloorClient) -> None:
         normalized_title = payload["title"]
 
         try:
-            raw_attachment: dict[str, Any] | str
-            if attachment_path and attachment_path.strip():
-                raw_attachment = attachment_path.strip()
-            elif isinstance(attachment, str):
-                raw_attachment = attachment
-            elif isinstance(attachment, dict):
-                raw_attachment = XFloorChatGPTAttachmentInput(**attachment).model_dump()
-            elif attachment is not None:
-                raw_attachment = attachment.model_dump()
-            else:
-                raise AttachmentBridgeError("Missing attachment. Provide `attachment` or fallback `attachment_path`.")
-            chatgpt_files_payload, attachment_file_ids, attachment_filenames = await download_chatgpt_attachments(
-                raw_attachment,
-                None,
-                allow_local_path_fallback=True,
+            chatgpt_files_payload, attachment_file_ids, attachment_filenames, attachment_source = await _resolve_attachment_input(
+                attachment
             )
         except AttachmentBridgeError as exc:
             logger.info("Attachment bridge failure type=%s", exc.__class__.__name__)
@@ -580,7 +599,7 @@ def register_tools(mcp: Any, client: XFloorClient) -> None:
                 "verification_required": False,
                 "attachment_bridge_failed": True,
                 "attachments_received": 0,
-                "message": "Attachment was provided, but official ChatGPT file params were missing or unusable for xFloor upload.",
+                "message": "Attachment was provided, but file handoff was unusable (rewrite/reference/download failed).",
                 "error": str(exc),
             }
 
@@ -620,7 +639,6 @@ def register_tools(mcp: Any, client: XFloorClient) -> None:
         logger.info("Downstream xFloor upload invoked for attachment tool")
         compact_result = _compact(result)
         status, message = _queued_status(compact_result)
-        attachment_source = "local_path" if (attachment_path and attachment_path.strip()) or isinstance(attachment, str) else "download_url"
 
         return {
             "floor_id": floor["floor_id"],
