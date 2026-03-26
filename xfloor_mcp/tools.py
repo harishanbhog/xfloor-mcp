@@ -514,7 +514,7 @@ def register_tools(mcp: Any, client: XFloorClient) -> None:
 
     _query_tool_kwargs: dict[str, Any] = {
         "name": "xfloor_query_current_floor",
-        "description": "Use this when the user wants to ask a question about the currently active xFloor. This tool uses the active floor selected by xfloor_set_active_floor, with the request header acting only as an optional override/debug path.",
+        "description": "Answer questions using the currently active xFloor. Use this when the user asks about the current floor without specifying another floor. It uses the floor selected by xfloor_set_active_floor, unless an explicit override is provided by the request context.",
     }
     widget_descriptor_meta = {
         "ui": {"resourceUri": query_widget_uri},
@@ -597,7 +597,7 @@ def register_tools(mcp: Any, client: XFloorClient) -> None:
 
     @mcp.tool(
         name="xfloor_post_event_to_current_floor",
-        description="Text-only post tool for the currently active xFloor.",
+        description="Create a text-only memory/event in the currently active xFloor. Use when the user wants to post, log, or save text to the current floor without specifying a different floor.",
     )
     async def xfloor_post_event_to_current_floor(input: XFloorPostEventToCurrentFloorInput, ctx: Any = None) -> dict[str, Any]:
         logger.info("xfloor_post_event_to_current_floor invoked (text-only)")
