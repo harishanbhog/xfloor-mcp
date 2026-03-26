@@ -419,7 +419,10 @@ def register_tools(mcp: Any, client: XFloorClient) -> None:
 
     _register_query_widget_resource()
 
-    @mcp.tool(name="xfloor_query_memory", description="Query xFloor memory")
+    @mcp.tool(
+        name="xfloor_query_memory",
+        description="Search or retrieve memory and events from the active xFloor, or from a specified floor if one is provided.",
+    )
     async def xfloor_query_memory(input: XFloorQueryMemoryInput, ctx: Any = None) -> dict[str, Any]:
         token = _extract_auth_token(ctx, input.auth_token)
         result = await client.query_memory(
@@ -434,7 +437,10 @@ def register_tools(mcp: Any, client: XFloorClient) -> None:
         )
         return _compact(result)
 
-    @mcp.tool(name="xfloor_create_event", description="Create xFloor memory event")
+    @mcp.tool(
+        name="xfloor_create_event",
+        description="Create a new memory/event in the active xFloor. Use when the user wants to post, log, or save information to a floor.",
+    )
     async def xfloor_create_event(input: XFloorCreateEventInput, ctx: Any = None) -> dict[str, Any]:
         token = _extract_auth_token(ctx, input.auth_token)
         client.validate_input_info(input.input_info)
@@ -455,7 +461,10 @@ def register_tools(mcp: Any, client: XFloorClient) -> None:
         result = await client.recent_events(token, params=params)
         return _compact(result)
 
-    @mcp.tool(name="xfloor_get_floor_info", description="Get floor info by floor_id")
+    @mcp.tool(
+        name="xfloor_get_floor_info",
+        description="Retrieve details for a floor by floor_id, such as its name, identifier, and related metadata.",
+    )
     async def xfloor_get_floor_info(input: XFloorGetFloorInfoInput, ctx: Any = None) -> dict[str, Any]:
         token = _extract_auth_token(ctx, input.auth_token)
         result = await client.get_floor_info(token, floor_id=input.floor_id)
@@ -490,7 +499,7 @@ def register_tools(mcp: Any, client: XFloorClient) -> None:
 
     @mcp.tool(
         name="xfloor_set_active_floor",
-        description="Use this when the user explicitly wants to select or switch the current xFloor, for example with phrases like 'use @phari' or '@croma'. This stores the active floor for subsequent current-floor tools.",
+        description="Select or switch the active xFloor workspace (floor) for this conversation. Use when the user explicitly wants to choose a floor, such as 'use @phari' or 'switch to @croma'. This sets the floor context for later xFloor actions.",
     )
     async def xfloor_set_active_floor(input: XFloorSetActiveFloorInput, ctx: Any = None) -> dict[str, Any]:
         resolved = resolve_floor_reference(floor_ref=input.floor_ref, floor_id=input.floor_id)
