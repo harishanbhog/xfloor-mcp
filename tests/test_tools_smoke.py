@@ -120,10 +120,13 @@ class TestToolsSmoke:
         def __init__(self) -> None:
             self.registry: dict[str, Callable[..., Any]] = {}
             self.resources: dict[str, Callable[..., Any]] = {}
+            self.tool_kwargs: dict[str, dict[str, Any]] = {}
+            self.resource_kwargs: dict[str, dict[str, Any]] = {}
 
         def tool(self, name: str, description: str, **kwargs: Any):
             def decorator(func):
                 self.registry[name] = func
+                self.tool_kwargs[name] = {"description": description, **kwargs}
                 return func
 
             return decorator
@@ -131,6 +134,7 @@ class TestToolsSmoke:
         def resource(self, uri: str, **kwargs: Any):
             def decorator(func):
                 self.resources[uri] = func
+                self.resource_kwargs[uri] = dict(kwargs)
                 return func
 
             return decorator
@@ -178,6 +182,8 @@ class TestToolsSmoke:
         assert get_type_hints(mcp.registry["xfloor_query_current_floor"])["input"] is XFloorQueryCurrentFloorInput
         assert get_type_hints(mcp.registry["xfloor_post_event_to_current_floor"])["input"] is XFloorPostEventToCurrentFloorInput
         assert "xfloor_post_event_with_attachment_to_current_floor" not in mcp.registry
+        assert mcp.tool_kwargs["xfloor_query_current_floor"]["_meta"]["openai/widgetAccessible"] is True
+        assert mcp.resource_kwargs["ui://widget/query-results-v1.html"]["_meta"]["openai/widgetCSP"]["connect_domains"] == []
 
     @pytest.mark.asyncio
     async def test_posting_surface_is_text_only_without_widget_or_attachment_tool(self) -> None:

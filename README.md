@@ -311,6 +311,15 @@ The query tool result `_meta.widget_debug` also includes:
 - `tool_widget_linked`
 - `relevant_floor_count`
 
+### Widget CSP (Apps SDK / ChatGPT UI)
+
+- If the ChatGPT Apps panel shows widget CSP as "off", the component can still render, but host-side security restrictions are not explicitly declared.
+- This repo now attaches widget CSP metadata on the registered resource (`openai/widgetCSP`) and marks the query tool as widget-callable (`openai/widgetAccessible=true`).
+- Current policy is intentionally strict for this widget:
+  - `connect_domains: []` (the component itself performs no network fetches)
+  - `resource_domains: [<origin from XFLOOR_BASE_URL>]` when that URL is valid
+- If your widget later fetches external APIs/CDNs, add only those exact origins to CSP allowlists.
+
 ### Active-floor precedence rules
 
 Current-floor tools resolve the floor in this order:

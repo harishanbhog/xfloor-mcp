@@ -5,12 +5,14 @@ from __future__ import annotations
 import json
 import inspect
 import logging
+from urllib.parse import urlparse
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from .active_floor_state import get_active_floor_state, resolve_floor_reference, set_active_floor_state
 from .request_context import get_active_floor_id, get_auth_mode, get_auth_token, get_user_id, get_xfloor_service_token
+from .settings import get_settings
 from .xfloor_client import XFloorClient
 
 logger = logging.getLogger(__name__)
@@ -381,6 +383,15 @@ def _build_query_results_widget_html() -> str:
 </html>"""
 
 
+def _infer_widget_resource_domains_from_base_url(base_url: str | None) -> list[str]:
+    if not base_url:
+        return []
+    parsed = urlparse(base_url)
+    if not parsed.scheme or not parsed.netloc:
+        return []
+    return [f"{parsed.scheme}://{parsed.netloc}"]
+
+
 def register_tools(mcp: Any, client: XFloorClient) -> None:
     """Register MCP tools on the provided FastMCP instance."""
     query_widget_uri = "ui://widget/query-results-v1.html"
@@ -400,9 +411,32 @@ def register_tools(mcp: Any, client: XFloorClient) -> None:
             logger.info("Query widget registration skipped: mcp.resource not available")
             return
         html = _build_query_results_widget_html()
+        settings = get_settings()
+        resource_signature = inspect.signature(mcp.resource)
+        resource_supports_var_kwargs = any(
+            param.kind == inspect.Parameter.VAR_KEYWORD for param in resource_signature.parameters.values()
+        )
+        resource_supports_meta = "_meta" in resource_signature.parameters or resource_supports_var_kwargs
+        resource_supports_meta_alias = "meta" in resource_signature.parameters
+        widget_resource_meta = {
+            "openai/widgetDescription": "Shows related xFloor chips and allows quick floor switching.",
+            "openai/widgetPrefersBorder": True,
+            "openai/widgetCSP": {
+                "connect_domains": [],
+                "resource_domains": _infer_widget_resource_domains_from_base_url(settings.xfloor_base_url),
+            },
+        }
+        widget_resource_kwargs: dict[str, Any] = {
+            "name": "xfloor-query-results-v1",
+            "mime_type": "text/html",
+        }
+        if resource_supports_meta:
+            widget_resource_kwargs["_meta"] = widget_resource_meta
+        elif resource_supports_meta_alias:
+            widget_resource_kwargs["meta"] = widget_resource_meta
         logger.info("Query widget registration attempt uri=%s", query_widget_uri)
         try:
-            @mcp.resource(query_widget_uri, name="xfloor-query-results-v1", mime_type="text/html")
+            @mcp.resource(query_widget_uri, **widget_resource_kwargs)
             async def _query_widget() -> str:
                 return html
             logger.info("Query widget registration success via named signature")
@@ -519,6 +553,7 @@ def register_tools(mcp: Any, client: XFloorClient) -> None:
     widget_descriptor_meta = {
         "ui": {"resourceUri": query_widget_uri},
         "openai/outputTemplate": query_widget_uri,
+        "openai/widgetAccessible": True,
     }
     if supports_meta:
         _query_tool_kwargs["_meta"] = widget_descriptor_meta
