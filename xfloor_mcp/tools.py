@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import inspect
 import logging
 from typing import Any
 
@@ -339,85 +338,8 @@ def normalize_query_response(
     return structured_content, meta
 
 
-def _build_query_results_widget_html() -> str:
-    return """<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <style>
-      body { font-family: system-ui, sans-serif; margin: 8px 0; }
-      #chips { display: flex; flex-wrap: wrap; gap: 6px; }
-      .chip { border: 1px solid #d0d7de; background: #f6f8fa; border-radius: 999px; padding: 4px 10px; cursor: pointer; }
-      .hint { font-size: 12px; color: #666; margin-bottom: 6px; }
-    </style>
-  </head>
-  <body>
-    <div class="hint">Related floors</div>
-    <div id="chips"></div>
-    <script>
-      const api = window.openai || {};
-      const sc = (window.structuredContent || window.__structuredContent || api?.toolOutput?.structuredContent || {});
-      const floors = Array.isArray(sc.relevantFloors) ? sc.relevantFloors : [];
-      const chips = document.getElementById("chips");
-      if (!floors.length) {
-        document.querySelector(".hint").style.display = "none";
-      }
-      floors.slice(0, 8).forEach((floor) => {
-        const button = document.createElement("button");
-        button.className = "chip";
-        button.textContent = "@" + (floor.floorName || floor.floorUid || "floor");
-        if (floor.floorDescription) button.title = floor.floorDescription;
-        button.addEventListener("click", async () => {
-          if (typeof api.callTool !== "function") return;
-          await api.callTool("xfloor_set_active_floor", {
-            floor_id: floor.floorUid || undefined,
-            floor_ref: floor.floorName || undefined,
-          });
-        });
-        chips.appendChild(button);
-      });
-    </script>
-  </body>
-</html>"""
-
-
 def register_tools(mcp: Any, client: XFloorClient) -> None:
     """Register MCP tools on the provided FastMCP instance."""
-    query_widget_uri = "ui://widget/query-results-v1.html"
-    tool_signature = inspect.signature(mcp.tool)
-    supports_var_kwargs = any(param.kind == inspect.Parameter.VAR_KEYWORD for param in tool_signature.parameters.values())
-    supports_meta = "_meta" in tool_signature.parameters or supports_var_kwargs
-    supports_meta_alias = "meta" in tool_signature.parameters
-    logger.info(
-        "Query widget setup: tool_supports_meta=%s tool_supports_meta_alias=%s tool_supports_var_kwargs=%s",
-        supports_meta,
-        supports_meta_alias,
-        supports_var_kwargs,
-    )
-
-    def _register_query_widget_resource() -> None:
-        if not hasattr(mcp, "resource"):
-            logger.info("Query widget registration skipped: mcp.resource not available")
-            return
-        html = _build_query_results_widget_html()
-        logger.info("Query widget registration attempt uri=%s", query_widget_uri)
-        try:
-            @mcp.resource(query_widget_uri, name="xfloor-query-results-v1", mime_type="text/html")
-            async def _query_widget() -> str:
-                return html
-            logger.info("Query widget registration success via named signature")
-            return
-        except TypeError:
-            logger.info("Query widget named signature unsupported; trying uri-only signature")
-        try:
-            @mcp.resource(query_widget_uri)
-            async def _query_widget_uri_only() -> str:
-                return html
-            logger.info("Query widget registration success via uri-only signature")
-        except TypeError:
-            logger.info("Query widget resource registration skipped due to incompatible runtime signature")
-
-    _register_query_widget_resource()
 
     @mcp.tool(
         name="xfloor_query_memory",
@@ -512,24 +434,10 @@ def register_tools(mcp: Any, client: XFloorClient) -> None:
             "state_scope": "in_memory_session",
         }
 
-    _query_tool_kwargs: dict[str, Any] = {
-        "name": "xfloor_query_current_floor",
-        "description": "Answer questions using the currently active xFloor. Use this when the user asks about the current floor without specifying another floor. It uses the floor selected by xfloor_set_active_floor, unless an explicit override is provided by the request context.",
-    }
-    widget_descriptor_meta = {
-        "ui": {"resourceUri": query_widget_uri},
-        "openai/outputTemplate": query_widget_uri,
-    }
-    if supports_meta:
-        _query_tool_kwargs["_meta"] = widget_descriptor_meta
-        logger.info("Query tool descriptor linked via _meta uri=%s", query_widget_uri)
-    elif supports_meta_alias:
-        _query_tool_kwargs["meta"] = widget_descriptor_meta
-        logger.info("Query tool descriptor linked via meta alias uri=%s", query_widget_uri)
-    else:
-        logger.info("Query tool descriptor widget link skipped: _meta unsupported in this MCP runtime")
-
-    @mcp.tool(**_query_tool_kwargs)
+    @mcp.tool(
+        name="xfloor_query_current_floor",
+        description="Answer questions using the currently active xFloor. Use this when the user asks about the current floor without specifying another floor. It uses the floor selected by xfloor_set_active_floor, unless an explicit override is provided by the request context.",
+    )
     async def xfloor_query_current_floor(input: XFloorQueryCurrentFloorInput, ctx: Any = None) -> dict[str, Any]:
         token = _extract_auth_token(ctx, None)
         floor = _resolve_active_floor_id()
@@ -546,7 +454,7 @@ def register_tools(mcp: Any, client: XFloorClient) -> None:
         )
         compact_result = _compact(result)
         logger.info("Query raw response received for normalization")
-        structured_content, widget_meta = normalize_query_response(
+        structured_content, normalization_meta = normalize_query_response(
             compact_result,
             active_floor=floor,
             original_query=input.query,
@@ -554,45 +462,37 @@ def register_tools(mcp: Any, client: XFloorClient) -> None:
         logger.info(
             "Query normalization complete normalized_floors=%s malformed_items=%s",
             structured_content["resultCount"],
-            widget_meta["malformedItemTextCount"],
+            normalization_meta["malformedItemTextCount"],
         )
         logger.info(
-            "Query widget payload generated widget_uri=%s fallback_mode=%s",
-            query_widget_uri,
-            "widget_with_text_fallback",
+            "Query response summary floor_id=%s relevant_floors=%s",
+            floor["floor_id"],
+            structured_content["resultCount"],
         )
         answer_text = structured_content.get("answer") or "Here’s what I found."
-        floor_lines: list[str] = []
+        related_floor_handles: list[str] = []
         for floor_item in structured_content["relevantFloors"][:5]:
-            label = floor_item.get("floorName") or floor_item.get("floorUid") or "Unknown floor"
-            uid = floor_item.get("floorUid") or ""
-            floor_lines.append(f"- {label}" + (f" (`{uid}`)" if uid else ""))
-        if floor_lines:
+            floor_name = (floor_item.get("floorName") or "").strip()
+            floor_uid = (floor_item.get("floorUid") or "").strip()
+            chosen = floor_name or floor_uid
+            if chosen:
+                related_floor_handles.append(f"@{chosen.lstrip('@')}")
+        if related_floor_handles:
             answer_text = (
-                f"{answer_text}\n\nRelated floors you can switch to:\n"
-                + "\n".join(floor_lines)
-                + "\n\nSay “switch to <floor name>” and I’ll call `xfloor_set_active_floor`."
+                f"{answer_text}\n\nRelated floors: {', '.join(related_floor_handles)}\n"
+                f"Try: use {related_floor_handles[0]}"
             )
         return {
-            "content": [{"type": "text", "text": answer_text}],
-            "structuredContent": structured_content,
-            "_meta": {
-                "ui_rendering_mode": "widget_with_text_fallback",
-                "ui": {"resourceUri": query_widget_uri},
-                "openai/outputTemplate": query_widget_uri,
-                "widget_debug": {
-                    "query_widget_uri": query_widget_uri,
-                    "tool_supports_meta": supports_meta,
-                    "tool_supports_meta_alias": supports_meta_alias,
-                    "tool_widget_linked": bool(supports_meta or supports_meta_alias),
-                    "relevant_floor_count": structured_content["resultCount"],
-                },
-                "queryWidgetPayload": {
-                    "resourceUri": query_widget_uri,
-                    "resultCount": structured_content["resultCount"],
-                },
-                **widget_meta,
-            },
+            "floor_id": floor["floor_id"],
+            "floor_ref": floor["floor_ref"],
+            "floor_source": floor["source"],
+            "query": input.query,
+            "answer": answer_text,
+            "best_match": structured_content["bestMatch"],
+            "relevant_floors": structured_content["relevantFloors"],
+            "result_count": structured_content["resultCount"],
+            "related_floors_text": related_floor_handles,
+            "normalization_meta": normalization_meta,
         }
 
     @mcp.tool(

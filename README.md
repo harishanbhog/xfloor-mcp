@@ -266,15 +266,12 @@ This repo now exposes an additive **v1 ChatGPT-facing MCP surface** on top of th
 2. `xfloor_query_current_floor`
    - Use this when the user wants to ask a question about the currently active xFloor.
    - Inputs: `query`, optional `topic`, optional `limit`.
-   - Returns MCP `content` plus normalized `structuredContent`:
-     - `activeFloor`
-     - `query`
-     - `answer`
-     - `bestMatch`
-     - `relevantFloors[]`
-     - `resultCount`
-   - In widget-capable app surfaces, `ui://widget/query-results-v1.html` renders tiny floor chips under the answer.
-   - In generic remote-MCP tool-calling surfaces, this still returns a text fallback list of related floors.
+   - Returns a plain MCP-friendly object containing:
+     - `floor_id`, `floor_ref`, `floor_source`
+     - `query`, `answer`
+     - `best_match`, `relevant_floors[]`, `result_count`
+     - `related_floors_text[]` and `normalization_meta`
+   - Response text includes a concise fallback suggestion when related floors are found (for example: `Related floors: @xforge, @fluidlab` and `Try: use @xforge`).
 
 3. `xfloor_post_event_to_current_floor`
    - **Text-only** post tool for the currently active xFloor.
@@ -292,30 +289,9 @@ This repo now exposes an additive **v1 ChatGPT-facing MCP surface** on top of th
 
 - Normalization is done inside the MCP tool (`xfloor_query_current_floor`), not in xFloor backend.
 - Raw xFloor `items[].text` are parsed when possible and mapped into normalized floor rows.
-- Malformed `item.text` fails soft: answer is still returned, malformed items are counted in `_meta`.
-- Relevant floors are sorted by score and exposed in `structuredContent.relevantFloors`.
-- Widget-capable app surfaces can render tiny chips from `structuredContent.relevantFloors` and call `xfloor_set_active_floor`.
-- Remote MCP tool callers still get a compact text fallback listing related floors with switch-floor guidance.
-
-### Query widget troubleshooting logs
-
-When debugging why chips/widget are not visible, check server logs for:
-- `Query widget setup: tool_supports_meta=...`
-- `Query widget registration attempt ...` and success/fallback signature messages
-- `Query tool descriptor linked to widget ...` (or `_meta unsupported`)
-- `Query widget payload generated ...`
-
-The query tool result `_meta.widget_debug` also includes:
-- `query_widget_uri`
-- `tool_supports_meta`
-- `tool_widget_linked`
-- `relevant_floor_count`
-
-### Widget CSP (Apps SDK / ChatGPT UI)
-
-- If the ChatGPT Apps panel shows widget CSP as "off", the component can still render, but host-side security restrictions are not explicitly declared.
-- To maximize compatibility across MCP runtimes, this server currently keeps widget descriptor metadata minimal (`ui.resourceUri` + `openai/outputTemplate`) and does not require CSP fields for runtime tool calls.
-- If you need strict CSP for a specific review environment, enable it only after confirming your target MCP runtime accepts resource `_meta` fields without affecting tool-call flow.
+- Malformed `item.text` fails soft: answer is still returned, malformed item count is included in `normalization_meta`.
+- Relevant floors are sorted by score and returned as `relevant_floors`.
+- This deployment is intentionally **plain remote MCP first**: query widgets are disabled for stability and text fallback is the default UX.
 
 ### Active-floor precedence rules
 

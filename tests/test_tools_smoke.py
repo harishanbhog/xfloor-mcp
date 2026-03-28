@@ -45,7 +45,6 @@ if HAS_DEPS:
         XFloorQueryMemoryInput,
         XFloorRecentEventsInput,
         XFloorSetActiveFloorInput,
-        _build_query_results_widget_html,
         normalize_query_response,
         register_tools,
     )
@@ -106,14 +105,6 @@ def test_normalize_query_response_fails_soft_on_malformed_item_text() -> None:
     assert meta["malformedItemTextCount"] == 1
 
 
-def test_query_results_widget_template_has_chip_action() -> None:
-    if not HAS_DEPS:
-        pytest.skip("requires pydantic/httpx")
-    html = _build_query_results_widget_html()
-    assert "relevantFloors" in html
-    assert "callTool(\"xfloor_set_active_floor\"" in html
-
-
 @pytest.mark.skipif(not HAS_DEPS, reason="requires pydantic/httpx")
 class TestToolsSmoke:
     class _FakeMCP:
@@ -172,7 +163,7 @@ class TestToolsSmoke:
             "xfloor_query_current_floor",
             "xfloor_post_event_to_current_floor",
         }
-        assert "ui://widget/query-results-v1.html" in mcp.resources
+        assert "ui://widget/query-results-v1.html" not in mcp.resources
 
         assert get_type_hints(mcp.registry["xfloor_query_memory"])["input"] is XFloorQueryMemoryInput
         assert get_type_hints(mcp.registry["xfloor_create_event"])["input"] is XFloorCreateEventInput
@@ -182,6 +173,8 @@ class TestToolsSmoke:
         assert get_type_hints(mcp.registry["xfloor_query_current_floor"])["input"] is XFloorQueryCurrentFloorInput
         assert get_type_hints(mcp.registry["xfloor_post_event_to_current_floor"])["input"] is XFloorPostEventToCurrentFloorInput
         assert "xfloor_post_event_with_attachment_to_current_floor" not in mcp.registry
+        assert "_meta" not in mcp.tool_kwargs["xfloor_query_current_floor"]
+        assert "meta" not in mcp.tool_kwargs["xfloor_query_current_floor"]
 
     @pytest.mark.asyncio
     async def test_posting_surface_is_text_only_without_widget_or_attachment_tool(self) -> None:
@@ -392,14 +385,11 @@ class TestToolsSmoke:
         )
 
         assert set_result["message"] == "Active floor set to phari"
-        assert query_result["structuredContent"]["activeFloor"]["id"] == "phari"
-        assert query_result["structuredContent"]["bestMatch"]["floorUrl"] == "phari.xfloor.ai"
-        assert query_result["content"][0]["type"] == "text"
-        assert "Related floors you can switch to" in query_result["content"][0]["text"]
-        assert query_result["_meta"]["ui_rendering_mode"] == "widget_with_text_fallback"
-        assert query_result["_meta"]["widget_debug"]["query_widget_uri"] == "ui://widget/query-results-v1.html"
-        assert query_result["_meta"]["widget_debug"]["relevant_floor_count"] == 1
-        assert "ui" in query_result["_meta"]
+        assert query_result["floor_id"] == "phari"
+        assert query_result["best_match"]["floorUrl"] == "phari.xfloor.ai"
+        assert "Related floors:" in query_result["answer"]
+        assert query_result["related_floors_text"] == ["@Phari"]
+        assert query_result["normalization_meta"]["malformedItemTextCount"] == 0
         assert post_result["posted"] is True
 
     @pytest.mark.asyncio
