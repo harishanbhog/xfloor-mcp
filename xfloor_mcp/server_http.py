@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import asyncio
 from contextlib import asynccontextmanager
 import logging
+import time
+import uuid
 from typing import Any, AsyncIterator
 
 from fastapi import FastAPI, Request
@@ -99,16 +102,40 @@ def create_http_app(settings: Settings) -> FastAPI:
 
     @app.middleware("http")
     async def xfloor_context_middleware(request: Request, call_next):
+        request_id = uuid.uuid4().hex[:8]
+        started = time.perf_counter()
         path = request.url.path
+        method = request.method.upper()
+        logger.info("MCP middleware request start request_id=%s method=%s path=%s", request_id, method, path)
         is_mcp_path = path == "/mcp" or path.startswith("/mcp/")
         if is_public_discovery_path(path):
             logger.info("Bypassing auth for public OAuth discovery path: %s", path)
-            return await call_next(request)
+            response = await call_next(request)
+            duration_ms = (time.perf_counter() - started) * 1000
+            logger.info(
+                "MCP middleware request end request_id=%s method=%s path=%s status=%s duration_ms=%.1f",
+                request_id,
+                method,
+                path,
+                response.status_code,
+                duration_ms,
+            )
+            return response
         if not is_mcp_path:
-            return await call_next(request)
+            response = await call_next(request)
+            duration_ms = (time.perf_counter() - started) * 1000
+            logger.info(
+                "MCP middleware request end request_id=%s method=%s path=%s status=%s duration_ms=%.1f",
+                request_id,
+                method,
+                path,
+                response.status_code,
+                duration_ms,
+            )
+            return response
 
         try:
-            identity = resolve_request_identity(request.headers, settings)
+            identity = await asyncio.to_thread(resolve_request_identity, request.headers, settings)
         except OAuthResolutionError as exc:
             content: dict[str, Any] = {"error": str(exc), "auth_mode": settings.xfloor_auth_mode}
             if exc.missing:
@@ -127,11 +154,22 @@ def create_http_app(settings: Settings) -> FastAPI:
                     resource_metadata_url,
                     error="invalid_token" if exc.status_code == 401 else "invalid_request",
                 )
-            return JSONResponse(
+            response = JSONResponse(
                 status_code=exc.status_code,
                 content=content,
                 headers=headers,
             )
+            duration_ms = (time.perf_counter() - started) * 1000
+            logger.warning(
+                "MCP middleware auth failure request_id=%s method=%s path=%s status=%s duration_ms=%.1f error=%s",
+                request_id,
+                method,
+                path,
+                exc.status_code,
+                duration_ms,
+                str(exc),
+            )
+            return response
 
         set_auth_mode(identity.auth_mode)
         set_auth_token(identity.auth_token)
@@ -143,7 +181,18 @@ def create_http_app(settings: Settings) -> FastAPI:
         set_oauth_issuer(identity.verified_identity.issuer if identity.verified_identity else None)
         set_oauth_subject(identity.verified_identity.subject if identity.verified_identity else None)
         try:
-            return await call_next(request)
+            response = await call_next(request)
+            duration_ms = (time.perf_counter() - started) * 1000
+            logger.info(
+                "MCP middleware request end request_id=%s method=%s path=%s status=%s duration_ms=%.1f session_key=%s",
+                request_id,
+                method,
+                path,
+                response.status_code,
+                duration_ms,
+                identity.session_key,
+            )
+            return response
         finally:
             set_auth_mode(None)
             set_auth_token(None)
