@@ -8,7 +8,13 @@ from typing import Any, Callable, get_type_hints
 
 import pytest
 
-from xfloor_mcp.active_floor_state import clear_all_active_floor_state, normalize_floor_ref, resolve_floor_reference
+from xfloor_mcp.active_floor_state import (
+    clear_all_active_floor_state,
+    get_active_floor_state,
+    normalize_floor_ref,
+    resolve_floor_reference,
+    set_active_floor_state,
+)
 from xfloor_mcp.request_context import set_session_key
 
 HAS_PYDANTIC = importlib.util.find_spec("pydantic") is not None
@@ -67,6 +73,35 @@ def test_set_active_floor_input_accepts_string_and_common_alias_keys() -> None:
     from_aliases = XFloorSetActiveFloorInput.model_validate({"floor": "phari", "id": "phari-id"})
     assert from_aliases.floor_ref == "phari"
     assert from_aliases.floor_id == "phari-id"
+
+
+def test_active_floor_state_isolated_by_session_key() -> None:
+    clear_all_active_floor_state()
+
+    set_session_key("chat-a")
+    set_active_floor_state("floor-a", "a")
+
+    set_session_key("chat-b")
+    set_active_floor_state("floor-b", "b")
+
+    assert get_active_floor_state() == {"floor_id": "floor-b", "floor_ref": "b"}
+
+    set_session_key("chat-a")
+    assert get_active_floor_state() == {"floor_id": "floor-a", "floor_ref": "a"}
+
+
+def test_active_floor_state_expires_with_ttl(monkeypatch: pytest.MonkeyPatch) -> None:
+    import xfloor_mcp.active_floor_state as active_floor_state
+
+    clear_all_active_floor_state()
+    set_session_key("chat-ttl")
+
+    base_time = 1_700_000_000.0
+    monkeypatch.setattr(active_floor_state.time, "time", lambda: base_time)
+    set_active_floor_state("floor-ttl", "ttl")
+
+    monkeypatch.setattr(active_floor_state.time, "time", lambda: base_time + (12 * 60 * 60) + 1)
+    assert get_active_floor_state() is None
 
 
 def test_normalize_query_response_sorts_and_builds_floor_urls() -> None:
@@ -747,7 +782,10 @@ def test_http_middleware_oauth_mode_resolves_user_and_sets_context(monkeypatch: 
     client = TestClient(app)
     response = client.post(
         "/mcp",
-        headers={"Authorization": "Bearer auth0-token"},
+        headers={
+            "Authorization": "Bearer auth0-token",
+            "x-openai-session": "chat-session-1",
+        },
         json={"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}},
     )
     assert response.status_code == 200
@@ -757,7 +795,7 @@ def test_http_middleware_oauth_mode_resolves_user_and_sets_context(monkeypatch: 
     assert payload["app_id"] == "fallback-app"
     assert payload["oauth_issuer"] == "https://example.auth0.com/"
     assert payload["oauth_subject"] == "auth0|demo-user"
-    assert payload["session_key"] == "oauth-dev-user:fallback-app"
+    assert payload["session_key"] == "chat-session-1"
     assert payload["service_token"] == "xfloor-service-token"
 
 

@@ -306,8 +306,9 @@ This means a floor explicitly selected with `xfloor_set_active_floor` wins over 
 ### State lifetime / v1 limitation
 
 - Active-floor state is stored in **in-memory server-side session state**.
-- For HTTP, it is keyed by MCP session ID when available, otherwise it falls back to a stable user/app-based key.
+- For HTTP, it is keyed primarily by `x-openai-session` (ChatGPT session), then MCP session headers, with a non-colliding fallback key when session headers are missing.
 - For stdio, it is process-local in-memory state.
+- Session entries auto-expire after 12 hours of inactivity.
 - State resets on server restart.
 
 ### Backward compatibility

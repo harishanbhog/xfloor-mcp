@@ -108,6 +108,21 @@ def create_http_app(settings: Settings) -> FastAPI:
         method = request.method.upper()
         logger.info("MCP middleware request start request_id=%s method=%s path=%s", request_id, method, path)
         is_mcp_path = path == "/mcp" or path.startswith("/mcp/")
+        if is_mcp_path:
+            openai_session = request.headers.get("x-openai-session") or request.headers.get("X-OpenAI-Session")
+            tool_name = (
+                request.headers.get("x-openai-tool-name")
+                or request.headers.get("X-OpenAI-Tool-Name")
+                or request.headers.get("x-tool-name")
+                or request.headers.get("X-Tool-Name")
+            )
+            logger.info(
+                "MCP session header path=%s tool=%s missing=%s x-openai-session=%s",
+                path,
+                tool_name or "unknown",
+                openai_session is None,
+                openai_session,
+            )
         if is_public_discovery_path(path):
             logger.info("Bypassing auth for public OAuth discovery path: %s", path)
             response = await call_next(request)

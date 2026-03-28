@@ -3,12 +3,17 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
+import time
 from typing import Any
 
 from .request_context import get_app_id, get_session_key, get_user_id
 
-_ACTIVE_FLOOR_STATE: dict[str, dict[str, str]] = {}
+logger = logging.getLogger(__name__)
+
+_STATE_TTL_SECONDS = 12 * 60 * 60
+_ACTIVE_FLOOR_STATE: dict[str, dict[str, Any]] = {}
 
 
 def normalize_floor_ref(floor_ref: str) -> str:
@@ -71,27 +76,52 @@ def _current_state_key() -> str:
 
     user_id = get_user_id() or "unknown-user"
     app_id = get_app_id() or "unknown-app"
-    return f"fallback:{user_id}:{app_id}"
+    nonce = time.time_ns()
+    return f"fallback:{user_id}:{app_id}:{nonce}"
+
+
+def _cleanup_expired_state(now: float | None = None) -> None:
+    current_time = now if now is not None else time.time()
+    expired_keys = [
+        key
+        for key, state in _ACTIVE_FLOOR_STATE.items()
+        if current_time - float(state.get("updated_at") or 0.0) > _STATE_TTL_SECONDS
+    ]
+    for key in expired_keys:
+        _ACTIVE_FLOOR_STATE.pop(key, None)
 
 
 def set_active_floor_state(floor_id: str, floor_ref: str) -> dict[str, str]:
     """Persist active-floor state for the current session/context."""
 
+    _cleanup_expired_state()
     key = _current_state_key()
-    state = {"floor_id": floor_id, "floor_ref": floor_ref}
+    state = {
+        "floor_id": floor_id,
+        "floor_ref": floor_ref,
+        "updated_at": time.time(),
+    }
     _ACTIVE_FLOOR_STATE[key] = state
-    return state
+    logger.info("Active floor state set state_key=%s", key)
+    return {"floor_id": floor_id, "floor_ref": floor_ref}
 
 
 def get_active_floor_state() -> dict[str, str] | None:
     """Get persisted active-floor state for the current session/context."""
 
-    return _ACTIVE_FLOOR_STATE.get(_current_state_key())
+    _cleanup_expired_state()
+    key = _current_state_key()
+    logger.info("Active floor state get state_key=%s", key)
+    state = _ACTIVE_FLOOR_STATE.get(key)
+    if not state:
+        return None
+    return {"floor_id": str(state["floor_id"]), "floor_ref": str(state["floor_ref"])}
 
 
 def clear_active_floor_state() -> None:
     """Clear active-floor state for the current session/context."""
 
+    _cleanup_expired_state()
     _ACTIVE_FLOOR_STATE.pop(_current_state_key(), None)
 
 

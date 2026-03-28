@@ -16,6 +16,7 @@ import importlib.util
 import json
 import logging
 import time
+import uuid
 from functools import lru_cache
 from dataclasses import dataclass, field
 from typing import Any, Mapping
@@ -307,10 +308,13 @@ def _resolve_cached_user_id(verified_identity: VerifiedIdentity, settings: Setti
 
 
 def _build_session_key(headers: Mapping[str, str], user_id: str, app_id: str) -> str:
+    openai_session = headers.get("x-openai-session") or headers.get("X-OpenAI-Session")
+    if openai_session:
+        return openai_session
     return (
         headers.get("Mcp-Session-Id")
         or headers.get("X-Mcp-Session-Id")
-        or f"{user_id}:{app_id}"
+        or f"fallback:{app_id}:{uuid.uuid4().hex[:12]}"
     )
 
 
