@@ -182,8 +182,6 @@ class TestToolsSmoke:
         assert get_type_hints(mcp.registry["xfloor_query_current_floor"])["input"] is XFloorQueryCurrentFloorInput
         assert get_type_hints(mcp.registry["xfloor_post_event_to_current_floor"])["input"] is XFloorPostEventToCurrentFloorInput
         assert "xfloor_post_event_with_attachment_to_current_floor" not in mcp.registry
-        assert mcp.tool_kwargs["xfloor_query_current_floor"]["_meta"]["openai/widgetAccessible"] is True
-        assert mcp.resource_kwargs["ui://widget/query-results-v1.html"]["_meta"]["ui"]["csp"]["connectDomains"] == []
 
     @pytest.mark.asyncio
     async def test_posting_surface_is_text_only_without_widget_or_attachment_tool(self) -> None:

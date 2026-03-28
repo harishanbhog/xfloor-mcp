@@ -314,12 +314,8 @@ The query tool result `_meta.widget_debug` also includes:
 ### Widget CSP (Apps SDK / ChatGPT UI)
 
 - If the ChatGPT Apps panel shows widget CSP as "off", the component can still render, but host-side security restrictions are not explicitly declared.
-- This repo now attaches widget CSP metadata on the registered resource under `_meta.ui.csp` and marks the query tool as widget-callable (`openai/widgetAccessible=true`).
-- Current policy is intentionally strict for this widget:
-  - `connectDomains: []` (the component itself performs no network fetches)
-  - `resourceDomains: [<origin from XFLOOR_BASE_URL>]` when that URL is valid
-  - `_meta.ui.domain` is also inferred from `XFLOOR_BASE_URL` when valid
-- If your widget later fetches external APIs/CDNs, add only those exact origins to CSP allowlists.
+- To maximize compatibility across MCP runtimes, this server currently keeps widget descriptor metadata minimal (`ui.resourceUri` + `openai/outputTemplate`) and does not require CSP fields for runtime tool calls.
+- If you need strict CSP for a specific review environment, enable it only after confirming your target MCP runtime accepts resource `_meta` fields without affecting tool-call flow.
 
 ### Active-floor precedence rules
 
