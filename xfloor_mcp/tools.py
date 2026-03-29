@@ -344,6 +344,7 @@ def register_tools(mcp: Any, client: XFloorClient) -> None:
     @mcp.tool(
         name="xfloor_query_memory",
         description="Search or retrieve memory and events from the active xFloor, or from a specified floor if one is provided.",
+        annotations={"readOnlyHint": True, "openWorldHint": False, "destructiveHint": False},
     )
     async def xfloor_query_memory(input: XFloorQueryMemoryInput, ctx: Any = None) -> dict[str, Any]:
         token = _extract_auth_token(ctx, input.auth_token)
@@ -362,6 +363,7 @@ def register_tools(mcp: Any, client: XFloorClient) -> None:
     @mcp.tool(
         name="xfloor_create_event",
         description="Create a new memory/event in the active xFloor. Use when the user wants to post, log, or save information to a floor.",
+        annotations={"readOnlyHint": False, "openWorldHint": False, "destructiveHint": False},
     )
     async def xfloor_create_event(input: XFloorCreateEventInput, ctx: Any = None) -> dict[str, Any]:
         token = _extract_auth_token(ctx, input.auth_token)
@@ -370,7 +372,11 @@ def register_tools(mcp: Any, client: XFloorClient) -> None:
         result = await client.create_event(token, input_info=input.input_info, files=files)
         return _compact(result)
 
-    @mcp.tool(name="xfloor_recent_events", description="Get recent xFloor memory events")
+    @mcp.tool(
+        name="xfloor_recent_events",
+        description="Get recent xFloor memory events",
+        annotations={"readOnlyHint": True, "openWorldHint": False, "destructiveHint": False},
+    )
     async def xfloor_recent_events(input: XFloorRecentEventsInput, ctx: Any = None) -> dict[str, Any]:
         token = _extract_auth_token(ctx, input.auth_token)
         params: dict[str, Any] = {}
@@ -386,13 +392,18 @@ def register_tools(mcp: Any, client: XFloorClient) -> None:
     @mcp.tool(
         name="xfloor_get_floor_info",
         description="Retrieve details for a floor by floor_id, such as its name, identifier, and related metadata.",
+        annotations={"readOnlyHint": True, "openWorldHint": False, "destructiveHint": False},
     )
     async def xfloor_get_floor_info(input: XFloorGetFloorInfoInput, ctx: Any = None) -> dict[str, Any]:
         token = _extract_auth_token(ctx, input.auth_token)
         result = await client.get_floor_info(token, floor_id=input.floor_id)
         return _compact(result)
 
-    @mcp.tool(name="xfloor_wait_for_ingestion", description="Poll recent events until text appears in title/description")
+    @mcp.tool(
+        name="xfloor_wait_for_ingestion",
+        description="Poll recent events until text appears in title/description",
+        annotations={"readOnlyHint": True, "openWorldHint": False, "destructiveHint": False},
+    )
     async def xfloor_wait_for_ingestion(input: XFloorWaitForIngestionInput, ctx: Any = None) -> dict[str, Any]:
         import asyncio
 
@@ -422,6 +433,7 @@ def register_tools(mcp: Any, client: XFloorClient) -> None:
     @mcp.tool(
         name="xfloor_set_active_floor",
         description="Select or switch the active xFloor workspace (floor) for this conversation. Use when the user explicitly wants to choose a floor, such as 'use @phari' or 'switch to @croma'. This sets the floor context for later xFloor actions.",
+        annotations={"readOnlyHint": False, "openWorldHint": False, "destructiveHint": False},
     )
     async def xfloor_set_active_floor(input: XFloorSetActiveFloorInput, ctx: Any = None) -> dict[str, Any]:
         resolved = resolve_floor_reference(floor_ref=input.floor_ref, floor_id=input.floor_id)
@@ -437,6 +449,7 @@ def register_tools(mcp: Any, client: XFloorClient) -> None:
     @mcp.tool(
         name="xfloor_query_current_floor",
         description="Answer questions using the currently active xFloor. Use this when the user asks about the current floor without specifying another floor. It uses the floor selected by xfloor_set_active_floor, unless an explicit override is provided by the request context.",
+        annotations={"readOnlyHint": True, "openWorldHint": False, "destructiveHint": False},
     )
     async def xfloor_query_current_floor(input: XFloorQueryCurrentFloorInput, ctx: Any = None) -> dict[str, Any]:
         token = _extract_auth_token(ctx, None)
@@ -498,6 +511,7 @@ def register_tools(mcp: Any, client: XFloorClient) -> None:
     @mcp.tool(
         name="xfloor_post_event_to_current_floor",
         description="Create a text-only memory/event in the currently active xFloor. Use when the user wants to post, log, or save text to the current floor without specifying a different floor.",
+        annotations={"readOnlyHint": False, "openWorldHint": False, "destructiveHint": False},
     )
     async def xfloor_post_event_to_current_floor(input: XFloorPostEventToCurrentFloorInput, ctx: Any = None) -> dict[str, Any]:
         logger.info("xfloor_post_event_to_current_floor invoked (text-only)")

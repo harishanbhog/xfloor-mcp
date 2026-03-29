@@ -210,6 +210,46 @@ class TestToolsSmoke:
         assert "xfloor_post_event_with_attachment_to_current_floor" not in mcp.registry
         assert "_meta" not in mcp.tool_kwargs["xfloor_query_current_floor"]
         assert "meta" not in mcp.tool_kwargs["xfloor_query_current_floor"]
+        assert mcp.tool_kwargs["xfloor_query_memory"]["annotations"] == {
+            "readOnlyHint": True,
+            "openWorldHint": False,
+            "destructiveHint": False,
+        }
+        assert mcp.tool_kwargs["xfloor_create_event"]["annotations"] == {
+            "readOnlyHint": False,
+            "openWorldHint": False,
+            "destructiveHint": False,
+        }
+        assert mcp.tool_kwargs["xfloor_recent_events"]["annotations"] == {
+            "readOnlyHint": True,
+            "openWorldHint": False,
+            "destructiveHint": False,
+        }
+        assert mcp.tool_kwargs["xfloor_get_floor_info"]["annotations"] == {
+            "readOnlyHint": True,
+            "openWorldHint": False,
+            "destructiveHint": False,
+        }
+        assert mcp.tool_kwargs["xfloor_wait_for_ingestion"]["annotations"] == {
+            "readOnlyHint": True,
+            "openWorldHint": False,
+            "destructiveHint": False,
+        }
+        assert mcp.tool_kwargs["xfloor_set_active_floor"]["annotations"] == {
+            "readOnlyHint": False,
+            "openWorldHint": False,
+            "destructiveHint": False,
+        }
+        assert mcp.tool_kwargs["xfloor_query_current_floor"]["annotations"] == {
+            "readOnlyHint": True,
+            "openWorldHint": False,
+            "destructiveHint": False,
+        }
+        assert mcp.tool_kwargs["xfloor_post_event_to_current_floor"]["annotations"] == {
+            "readOnlyHint": False,
+            "openWorldHint": False,
+            "destructiveHint": False,
+        }
 
     @pytest.mark.asyncio
     async def test_posting_surface_is_text_only_without_widget_or_attachment_tool(self) -> None:
