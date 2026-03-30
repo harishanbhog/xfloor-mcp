@@ -91,7 +91,15 @@ def _cleanup_expired_state(now: float | None = None) -> None:
         _ACTIVE_FLOOR_STATE.pop(key, None)
 
 
-def set_active_floor_state(floor_id: str, floor_ref: str) -> dict[str, str]:
+def set_active_floor_state(
+    floor_id: str,
+    floor_ref: str,
+    *,
+    floor_handle: str | None = None,
+    floor_title: str | None = None,
+    floor_description: str | None = None,
+    floor_tags: list[str] | None = None,
+) -> dict[str, Any]:
     """Persist active-floor state for the current session/context."""
 
     _cleanup_expired_state()
@@ -99,14 +107,25 @@ def set_active_floor_state(floor_id: str, floor_ref: str) -> dict[str, str]:
     state = {
         "floor_id": floor_id,
         "floor_ref": floor_ref,
+        "floor_handle": floor_handle,
+        "floor_title": floor_title,
+        "floor_description": floor_description,
+        "floor_tags": floor_tags or [],
         "updated_at": time.time(),
     }
     _ACTIVE_FLOOR_STATE[key] = state
     logger.info("Active floor state set state_key=%s", key)
-    return {"floor_id": floor_id, "floor_ref": floor_ref}
+    return {
+        "floor_id": floor_id,
+        "floor_ref": floor_ref,
+        "floor_handle": floor_handle,
+        "floor_title": floor_title,
+        "floor_description": floor_description,
+        "floor_tags": floor_tags or [],
+    }
 
 
-def get_active_floor_state() -> dict[str, str] | None:
+def get_active_floor_state() -> dict[str, Any] | None:
     """Get persisted active-floor state for the current session/context."""
 
     _cleanup_expired_state()
@@ -115,7 +134,14 @@ def get_active_floor_state() -> dict[str, str] | None:
     state = _ACTIVE_FLOOR_STATE.get(key)
     if not state:
         return None
-    return {"floor_id": str(state["floor_id"]), "floor_ref": str(state["floor_ref"])}
+    return {
+        "floor_id": str(state["floor_id"]),
+        "floor_ref": str(state["floor_ref"]),
+        "floor_handle": state.get("floor_handle"),
+        "floor_title": state.get("floor_title"),
+        "floor_description": state.get("floor_description"),
+        "floor_tags": list(state.get("floor_tags") or []),
+    }
 
 
 def clear_active_floor_state() -> None:

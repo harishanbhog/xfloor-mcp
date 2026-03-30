@@ -296,6 +296,11 @@ This repo now exposes an additive **v1 ChatGPT-facing MCP surface** on top of th
 - Malformed `item.text` fails soft: answer is still returned, malformed item count is included in `normalization_meta`.
 - Relevant floors are sorted by score and returned as `relevant_floors`.
 - This deployment is intentionally **plain remote MCP first**: query widgets are disabled for stability and text fallback is the default UX.
+- `xfloor_set_active_floor` stores enriched floor context in session memory (id/ref plus available title/description/tags from floor info).
+- `xfloor_query_current_floor` uses lightweight scope gating:
+  - explicit floor-scoped prompts proceed,
+  - generic writing/editing prompts no-op,
+  - ambiguous context-seeking prompts proceed only when related to active-floor metadata.
 
 ### Active-floor precedence rules
 

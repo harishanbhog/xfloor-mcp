@@ -85,10 +85,12 @@ def test_active_floor_state_isolated_by_session_key() -> None:
     set_session_key("chat-b")
     set_active_floor_state("floor-b", "b")
 
-    assert get_active_floor_state() == {"floor_id": "floor-b", "floor_ref": "b"}
+    assert get_active_floor_state()["floor_id"] == "floor-b"
+    assert get_active_floor_state()["floor_ref"] == "b"
 
     set_session_key("chat-a")
-    assert get_active_floor_state() == {"floor_id": "floor-a", "floor_ref": "a"}
+    assert get_active_floor_state()["floor_id"] == "floor-a"
+    assert get_active_floor_state()["floor_ref"] == "a"
 
 
 def test_active_floor_state_expires_with_ttl(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -412,6 +414,16 @@ class TestToolsSmoke:
         set_active_floor_id(None)
 
         class _FakeClient:
+            async def get_floor_info(self, token: str, floor_id: str) -> dict[str, Any]:
+                assert floor_id == "phari"
+                return {
+                    "result": {
+                        "title": "Phari Campus",
+                        "description": "Campus updates seminars sports events notices",
+                        "tags": ["campus", "events"],
+                    }
+                }
+
             async def query_memory(self, token: str, **kwargs: Any) -> dict[str, Any]:
                 assert kwargs["floor_ids"] == ["phari"]
                 return {
@@ -436,7 +448,7 @@ class TestToolsSmoke:
             None,
         )
         query_result = await mcp.registry["xfloor_query_current_floor"](
-            XFloorQueryCurrentFloorInput(query="What is happening?"),
+            XFloorQueryCurrentFloorInput(query="What is happening in the current floor?"),
             None,
         )
         post_result = await mcp.registry["xfloor_post_event_to_current_floor"](
@@ -445,6 +457,7 @@ class TestToolsSmoke:
         )
 
         assert set_result["message"] == "Active floor set to phari"
+        assert set_result["floor_title"] == "Phari Campus"
         assert query_result["floor_id"] == "phari"
         assert query_result["best_match"]["floorUrl"] == "phari.xfloor.ai"
         assert "Related floors:" in query_result["answer"]
@@ -620,7 +633,7 @@ class TestToolsSmoke:
         mcp_override = self._FakeMCP()
         register_tools(mcp_override, _HeaderClient())
         result = await mcp_override.registry["xfloor_query_current_floor"](
-            XFloorQueryCurrentFloorInput(query="What is happening?"),
+            XFloorQueryCurrentFloorInput(query="What is happening in the current floor?"),
             None,
         )
         assert result["floor_source"] == "session_state"
@@ -641,7 +654,7 @@ class TestToolsSmoke:
 
         register_tools(mcp, _HeaderClient())
         result = await mcp.registry["xfloor_query_current_floor"](
-            XFloorQueryCurrentFloorInput(query="What is happening?"),
+            XFloorQueryCurrentFloorInput(query="What is happening in the current floor?"),
             None,
         )
         assert result["floor_source"] == "header_override"
@@ -662,11 +675,58 @@ class TestToolsSmoke:
         register_tools(mcp=mcp, client=_FakeClient())
 
         result = await mcp.registry["xfloor_query_current_floor"](
-            XFloorQueryCurrentFloorInput(query="What is happening?"),
+            XFloorQueryCurrentFloorInput(query="What is happening in the current floor?"),
             None,
         )
         assert result["ok"] is False
         assert "No active Floor is set" in result["message"]
+
+    @pytest.mark.asyncio
+    async def test_query_current_floor_noops_for_generic_writing_request(self) -> None:
+        mcp = self._FakeMCP()
+        set_auth_token("ctx-token")
+        set_user_id("ctx-user")
+        set_app_id("ctx-app")
+
+        class _FakeClient:
+            async def query_memory(self, token: str, **kwargs: Any) -> dict[str, Any]:
+                raise AssertionError("query_memory should not be called for generic writing requests")
+
+        register_tools(mcp=mcp, client=_FakeClient())
+        await mcp.registry["xfloor_set_active_floor"](XFloorSetActiveFloorInput(floor_ref="@phari"), None)
+        result = await mcp.registry["xfloor_query_current_floor"](
+            XFloorQueryCurrentFloorInput(query="paraphrase an article for me"),
+            None,
+        )
+        assert result["ok"] is False
+        assert "No xFloor action taken" in result["message"]
+
+    @pytest.mark.asyncio
+    async def test_query_current_floor_uses_metadata_scope_for_ambiguous_context_prompt(self) -> None:
+        mcp = self._FakeMCP()
+        set_auth_token("ctx-token")
+        set_user_id("ctx-user")
+        set_app_id("ctx-app")
+
+        class _FakeClient:
+            async def get_floor_info(self, token: str, floor_id: str) -> dict[str, Any]:
+                return {
+                    "result": {
+                        "title": "PES University",
+                        "description": "Campus updates seminars sports events student notices",
+                    }
+                }
+
+            async def query_memory(self, token: str, **kwargs: Any) -> dict[str, Any]:
+                return {"result": {"answer": "Sports update", "items": []}}
+
+        register_tools(mcp=mcp, client=_FakeClient())
+        await mcp.registry["xfloor_set_active_floor"](XFloorSetActiveFloorInput(floor_ref="@pesedu"), None)
+        result = await mcp.registry["xfloor_query_current_floor"](
+            XFloorQueryCurrentFloorInput(query="latest sports news"),
+            None,
+        )
+        assert result["answer"].startswith("Sports update")
 
 
 @pytest.mark.skipif(not (HAS_DEPS and HAS_FASTAPI), reason="requires fastapi + runtime deps")
@@ -1192,7 +1252,7 @@ async def test_current_floor_tools_continue_to_work_with_oauth_resolved_user() -
 
     set_result = await mcp.registry["xfloor_set_active_floor"](XFloorSetActiveFloorInput(floor_ref="@phari"), None)
     query_result = await mcp.registry["xfloor_query_current_floor"](
-        XFloorQueryCurrentFloorInput(query="What is happening?"),
+        XFloorQueryCurrentFloorInput(query="What is happening in the current floor?"),
         None,
     )
     post_result = await mcp.registry["xfloor_post_event_to_current_floor"](

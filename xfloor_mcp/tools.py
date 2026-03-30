@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -162,6 +163,10 @@ def _resolve_active_floor_id() -> dict[str, str]:
         return {
             "floor_id": state["floor_id"],
             "floor_ref": state["floor_ref"],
+            "floor_handle": state.get("floor_handle"),
+            "floor_title": state.get("floor_title"),
+            "floor_description": state.get("floor_description"),
+            "floor_tags": state.get("floor_tags") or [],
             "source": "session_state",
         }
 
@@ -264,6 +269,115 @@ def _to_score(value: Any) -> float:
         return float(value)
     except Exception:  # noqa: BLE001
         return 0.0
+
+
+def _extract_floor_metadata(floor_payload: dict[str, Any], fallback_ref: str) -> dict[str, Any]:
+    result = floor_payload.get("result") if isinstance(floor_payload.get("result"), dict) else floor_payload
+    floor_data = result.get("floor") if isinstance(result.get("floor"), dict) else result
+    if not isinstance(floor_data, dict):
+        floor_data = {}
+    floor_handle = str(
+        floor_data.get("handle")
+        or floor_data.get("floor_handle")
+        or floor_data.get("name")
+        or fallback_ref
+    ).strip() or fallback_ref
+    floor_title = str(
+        floor_data.get("title")
+        or floor_data.get("floor_title")
+        or floor_data.get("display_name")
+        or floor_data.get("name")
+        or ""
+    ).strip() or None
+    floor_description = str(
+        floor_data.get("description")
+        or floor_data.get("floor_description")
+        or floor_data.get("about")
+        or ""
+    ).strip() or None
+    raw_tags = floor_data.get("tags") or floor_data.get("categories") or []
+    tags = [str(item).strip() for item in raw_tags if str(item).strip()] if isinstance(raw_tags, list) else []
+    return {
+        "floor_handle": floor_handle,
+        "floor_title": floor_title,
+        "floor_description": floor_description,
+        "floor_tags": tags,
+    }
+
+
+def _tokenize(value: str) -> set[str]:
+    return {token for token in re.findall(r"[a-z0-9]+", value.lower()) if len(token) > 2}
+
+
+def _is_explicit_floor_scoped_prompt(prompt: str, floor: dict[str, Any] | None) -> bool:
+    text = prompt.lower()
+    floor_id = (floor or {}).get("floor_id")
+    floor_ref = (floor or {}).get("floor_ref")
+    explicit_phrases = [
+        "current floor",
+        "this floor",
+        "active floor",
+        "from xfloor",
+        "in the floor",
+        "post to the floor",
+        "save to the floor",
+        "log to the floor",
+    ]
+    if any(phrase in text for phrase in explicit_phrases):
+        return True
+    if "@" in text:
+        return True
+    return bool((floor_id and str(floor_id).lower() in text) or (floor_ref and str(floor_ref).lower() in text))
+
+
+def _is_generic_writing_prompt(prompt: str) -> bool:
+    text = prompt.lower()
+    patterns = [
+        "paraphrase",
+        "rewrite",
+        "summarize this text",
+        "translate",
+        "draft an email",
+        "improve grammar",
+    ]
+    return any(pattern in text for pattern in patterns)
+
+
+def _is_context_seeking_prompt(prompt: str) -> bool:
+    tokens = _tokenize(prompt)
+    context_tokens = {"latest", "recent", "updates", "news", "notes", "events", "announcements"}
+    return bool(tokens & context_tokens)
+
+
+def _is_prompt_related_to_active_floor(prompt: str, floor: dict[str, Any] | None) -> bool:
+    if not floor:
+        return False
+    prompt_tokens = _tokenize(prompt)
+    if not prompt_tokens:
+        return False
+    floor_text_parts = [
+        str(floor.get("floor_ref") or ""),
+        str(floor.get("floor_handle") or ""),
+        str(floor.get("floor_title") or ""),
+        str(floor.get("floor_description") or ""),
+    ] + [str(tag) for tag in (floor.get("floor_tags") or [])]
+    floor_tokens = _tokenize(" ".join(floor_text_parts))
+    overlap = prompt_tokens & floor_tokens
+    if overlap:
+        return True
+    return _is_context_seeking_prompt(prompt) and bool(floor_tokens)
+
+
+def should_use_xfloor(prompt: str, floor: dict[str, Any] | None) -> tuple[bool, str]:
+    if _is_explicit_floor_scoped_prompt(prompt, floor):
+        return True, "explicit_floor_scope"
+    if _is_generic_writing_prompt(prompt):
+        return False, "generic_writing_task"
+    if not floor:
+        return False, "no_active_floor"
+    if _is_prompt_related_to_active_floor(prompt, floor):
+        return True, "related_to_active_floor"
+    return False, "not_related_to_active_floor"
 
 
 def normalize_query_response(
@@ -449,12 +563,33 @@ def register_tools(mcp: Any, client: XFloorClient) -> None:
     )
     async def xfloor_set_active_floor(input: XFloorSetActiveFloorInput, ctx: Any = None) -> dict[str, Any]:
         resolved = resolve_floor_reference(floor_ref=input.floor_ref, floor_id=input.floor_id)
-        state = set_active_floor_state(floor_id=resolved["floor_id"], floor_ref=resolved["floor_ref"])
+        metadata: dict[str, Any] = {
+            "floor_handle": resolved["floor_ref"],
+            "floor_title": None,
+            "floor_description": None,
+            "floor_tags": [],
+        }
+        try:
+            token = _extract_auth_token(ctx, None)
+            floor_info_result = await client.get_floor_info(token, floor_id=resolved["floor_id"])
+            metadata = _extract_floor_metadata(_compact(floor_info_result), resolved["floor_ref"])
+        except Exception as exc:  # noqa: BLE001
+            logger.info("Active floor metadata fetch skipped due to error: %s", exc)
+        state = set_active_floor_state(
+            floor_id=resolved["floor_id"],
+            floor_ref=resolved["floor_ref"],
+            floor_handle=metadata["floor_handle"],
+            floor_title=metadata["floor_title"],
+            floor_description=metadata["floor_description"],
+            floor_tags=metadata["floor_tags"],
+        )
         return {
             "ok": True,
             "message": f"Active floor set to {state['floor_ref']}",
             "floor_ref": state["floor_ref"],
             "floor_id": state["floor_id"],
+            "floor_title": state.get("floor_title"),
+            "floor_description": state.get("floor_description"),
             "state_scope": "in_memory_session",
         }
 
@@ -491,6 +626,17 @@ def register_tools(mcp: Any, client: XFloorClient) -> None:
             return {
                 "ok": False,
                 "message": "No active Floor is set. Continue without xFloor, or call xfloor_set_active_floor if Floor-specific context is needed.",
+            }
+        use_xfloor, reason = should_use_xfloor(input.query, floor)
+        if not use_xfloor:
+            if reason == "generic_writing_task":
+                return {
+                    "ok": False,
+                    "message": "No xFloor action taken. This request does not appear to need Floor-specific context.",
+                }
+            return {
+                "ok": False,
+                "message": "No xFloor action taken. This request is not clearly related to the active Floor’s published context.",
             }
         user_id = _require_context_user_id()
         query_text = input.query if not input.topic else f"{input.query}\n\nTopic: {input.topic}"
