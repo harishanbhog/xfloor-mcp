@@ -82,6 +82,12 @@ class XFloorSetActiveFloorInput(BaseModel):
             normalized = value.strip()
             return {"floor_ref": normalized} if normalized else {}
         if isinstance(value, dict):
+            nested_input = value.get("input")
+            if isinstance(nested_input, str):
+                normalized_nested = nested_input.strip()
+                return {"floor_ref": normalized_nested} if normalized_nested else {}
+            if isinstance(nested_input, dict):
+                value = nested_input
             candidate_floor_ref = value.get("floor_ref") or value.get("floor") or value.get("name")
             candidate_floor_id = value.get("floor_id") or value.get("id")
             if candidate_floor_ref is not None or candidate_floor_id is not None:

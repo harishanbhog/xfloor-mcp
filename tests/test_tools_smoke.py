@@ -75,6 +75,14 @@ def test_set_active_floor_input_accepts_string_and_common_alias_keys() -> None:
     assert from_aliases.floor_ref == "phari"
     assert from_aliases.floor_id == "phari-id"
 
+    from_nested_input_string = XFloorSetActiveFloorInput.model_validate({"input": "@pesedu"})
+    assert from_nested_input_string.floor_ref == "@pesedu"
+    assert from_nested_input_string.floor_id is None
+
+    from_nested_input_object = XFloorSetActiveFloorInput.model_validate({"input": {"floor_ref": "@pesedu"}})
+    assert from_nested_input_object.floor_ref == "@pesedu"
+    assert from_nested_input_object.floor_id is None
+
 
 def test_active_floor_state_isolated_by_session_key() -> None:
     clear_all_active_floor_state()
