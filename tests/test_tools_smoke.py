@@ -44,6 +44,7 @@ if HAS_DEPS:
     from xfloor_mcp.settings import Settings
     from xfloor_mcp.tools import (
         XFloorCreateEventInput,
+        XFloorClearActiveFloorInput,
         XFloorFileInput,
         XFloorGetFloorInfoInput,
         XFloorPostEventToCurrentFloorInput,
@@ -189,53 +190,37 @@ class TestToolsSmoke:
         register_tools(mcp=mcp, client=SimpleNamespace())
 
         assert set(mcp.registry.keys()) == {
-            "xfloor_query_memory",
-            "xfloor_create_event",
-            "xfloor_recent_events",
             "xfloor_get_floor_info",
-            "xfloor_wait_for_ingestion",
             "xfloor_set_active_floor",
+            "xfloor_clear_active_floor",
             "xfloor_query_current_floor",
             "xfloor_post_event_to_current_floor",
         }
         assert "ui://widget/query-results-v1.html" not in mcp.resources
 
-        assert get_type_hints(mcp.registry["xfloor_query_memory"])["input"] is XFloorQueryMemoryInput
-        assert get_type_hints(mcp.registry["xfloor_create_event"])["input"] is XFloorCreateEventInput
-        assert get_type_hints(mcp.registry["xfloor_recent_events"])["input"] is XFloorRecentEventsInput
         assert get_type_hints(mcp.registry["xfloor_get_floor_info"])["input"] is XFloorGetFloorInfoInput
         assert get_type_hints(mcp.registry["xfloor_set_active_floor"])["input"] is XFloorSetActiveFloorInput
+        assert get_type_hints(mcp.registry["xfloor_clear_active_floor"])["input"] is XFloorClearActiveFloorInput
         assert get_type_hints(mcp.registry["xfloor_query_current_floor"])["input"] is XFloorQueryCurrentFloorInput
         assert get_type_hints(mcp.registry["xfloor_post_event_to_current_floor"])["input"] is XFloorPostEventToCurrentFloorInput
+        assert "xfloor_query_memory" not in mcp.registry
+        assert "xfloor_create_event" not in mcp.registry
+        assert "xfloor_recent_events" not in mcp.registry
+        assert "xfloor_wait_for_ingestion" not in mcp.registry
         assert "xfloor_post_event_with_attachment_to_current_floor" not in mcp.registry
         assert "_meta" not in mcp.tool_kwargs["xfloor_query_current_floor"]
         assert "meta" not in mcp.tool_kwargs["xfloor_query_current_floor"]
-        assert mcp.tool_kwargs["xfloor_query_memory"]["annotations"] == {
-            "readOnlyHint": True,
-            "openWorldHint": False,
-            "destructiveHint": False,
-        }
-        assert mcp.tool_kwargs["xfloor_create_event"]["annotations"] == {
-            "readOnlyHint": False,
-            "openWorldHint": False,
-            "destructiveHint": False,
-        }
-        assert mcp.tool_kwargs["xfloor_recent_events"]["annotations"] == {
-            "readOnlyHint": True,
-            "openWorldHint": False,
-            "destructiveHint": False,
-        }
         assert mcp.tool_kwargs["xfloor_get_floor_info"]["annotations"] == {
             "readOnlyHint": True,
             "openWorldHint": False,
             "destructiveHint": False,
         }
-        assert mcp.tool_kwargs["xfloor_wait_for_ingestion"]["annotations"] == {
-            "readOnlyHint": True,
+        assert mcp.tool_kwargs["xfloor_set_active_floor"]["annotations"] == {
+            "readOnlyHint": False,
             "openWorldHint": False,
             "destructiveHint": False,
         }
-        assert mcp.tool_kwargs["xfloor_set_active_floor"]["annotations"] == {
+        assert mcp.tool_kwargs["xfloor_clear_active_floor"]["annotations"] == {
             "readOnlyHint": False,
             "openWorldHint": False,
             "destructiveHint": False,
@@ -495,6 +480,23 @@ class TestToolsSmoke:
         assert result["event"]["block_id"] is None
 
     @pytest.mark.asyncio
+    async def test_clear_active_floor_tool_clears_and_is_benign_when_empty(self) -> None:
+        mcp = self._FakeMCP()
+        set_auth_token("ctx-token")
+        set_user_id("ctx-user")
+        set_app_id("ctx-app")
+        register_tools(mcp=mcp, client=SimpleNamespace())
+
+        empty_result = await mcp.registry["xfloor_clear_active_floor"](XFloorClearActiveFloorInput(), None)
+        assert empty_result["ok"] is True
+        assert empty_result["cleared"] is False
+
+        await mcp.registry["xfloor_set_active_floor"](XFloorSetActiveFloorInput(floor_ref="@phari"), None)
+        clear_result = await mcp.registry["xfloor_clear_active_floor"](XFloorClearActiveFloorInput(), None)
+        assert clear_result["ok"] is True
+        assert clear_result["cleared"] is True
+
+    @pytest.mark.asyncio
     async def test_post_event_to_current_floor_marks_queue_submission_as_success(self) -> None:
         mcp = self._FakeMCP()
         set_auth_token("ctx-token")
@@ -645,7 +647,7 @@ class TestToolsSmoke:
         assert result["floor_source"] == "header_override"
 
     @pytest.mark.asyncio
-    async def test_current_floor_tools_fail_clearly_without_active_floor(self) -> None:
+    async def test_current_floor_tools_return_clear_message_without_active_floor(self) -> None:
         mcp = self._FakeMCP()
         set_auth_token("ctx-token")
         set_user_id("ctx-user")
@@ -659,11 +661,12 @@ class TestToolsSmoke:
 
         register_tools(mcp=mcp, client=_FakeClient())
 
-        with pytest.raises(ValueError, match="No active floor set"):
-            await mcp.registry["xfloor_query_current_floor"](
-                XFloorQueryCurrentFloorInput(query="What is happening?"),
-                None,
-            )
+        result = await mcp.registry["xfloor_query_current_floor"](
+            XFloorQueryCurrentFloorInput(query="What is happening?"),
+            None,
+        )
+        assert result["ok"] is False
+        assert "No active Floor is set" in result["message"]
 
 
 @pytest.mark.skipif(not (HAS_DEPS and HAS_FASTAPI), reason="requires fastapi + runtime deps")

@@ -277,6 +277,10 @@ This repo now exposes an additive **v1 ChatGPT-facing MCP surface** on top of th
    - **Text-only** post tool for the currently active xFloor.
    - Inputs: optional `title` (falls back to `description`), `description`, optional `block_id`, plus optional `block_type`, `location`, `start_date`, `start_time`, `end_date`, `end_time`.
 
+4. `xfloor_clear_active_floor`
+   - Clears active Floor context for the current conversation/session.
+   - Use when the user explicitly asks to reset or stop using the current Floor.
+
 ### Posting status (temporary rollback)
 
 - Posting is currently **text-only**.
@@ -313,15 +317,20 @@ This means a floor explicitly selected with `xfloor_set_active_floor` wins over 
 
 ### Backward compatibility
 
-The original tools are still preserved and continue to work unchanged:
+The following compatibility tools are currently **temporarily disabled for the V1 public MCP surface** to keep routing safer and reduce over-triggering:
 
 - `xfloor_query_memory`
 - `xfloor_create_event`
 - `xfloor_recent_events`
-- `xfloor_get_floor_info`
 - `xfloor_wait_for_ingestion`
 
-Use the **old tools** when you need low-level control such as explicit `floor_ids`, raw `input_info`, or floor-specific plumbing. Use the **new tools** when you want a cleaner ChatGPT-facing experience for a single active floor.
+The remaining enabled V1 tools are:
+
+- `xfloor_set_active_floor`
+- `xfloor_clear_active_floor`
+- `xfloor_query_current_floor`
+- `xfloor_post_event_to_current_floor`
+- `xfloor_get_floor_info`
 
 ### Inspector example without active-floor header
 
@@ -373,7 +382,7 @@ Then run tools:
 
 - First set a floor with: `xfloor_set_active_floor`
 - Then use the preferred v1 tools: `xfloor_query_current_floor`, `xfloor_post_event_to_current_floor`
-- Backward-compatible tools remain available: `xfloor_query_memory`, `xfloor_create_event`, `xfloor_recent_events`, `xfloor_get_floor_info`, `xfloor_wait_for_ingestion`
+- V1 public surface is intentionally narrow: `xfloor_set_active_floor`, `xfloor_clear_active_floor`, `xfloor_query_current_floor`, `xfloor_post_event_to_current_floor`, `xfloor_get_floor_info`
 
 ---
 
