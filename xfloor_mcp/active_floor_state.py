@@ -49,7 +49,7 @@ def resolve_floor_reference(floor_ref: str | None = None, floor_id: str | None =
     """Resolve a floor ref/alias into a concrete floor identifier."""
 
     if floor_id and floor_id.strip():
-        normalized = normalize_floor_ref(floor_ref or floor_id)
+        normalized = normalize_floor_ref(floor_ref) if floor_ref and floor_ref.strip() else normalize_floor_ref(floor_id)
         return {
             "floor_ref": normalized or floor_id.strip(),
             "floor_id": floor_id.strip(),

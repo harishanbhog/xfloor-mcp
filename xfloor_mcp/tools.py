@@ -369,15 +369,12 @@ def _is_prompt_related_to_active_floor(prompt: str, floor: dict[str, Any] | None
 
 
 def should_use_xfloor(prompt: str, floor: dict[str, Any] | None) -> tuple[bool, str]:
-    if _is_explicit_floor_scoped_prompt(prompt, floor):
-        return True, "explicit_floor_scope"
-    if _is_generic_writing_prompt(prompt):
-        return False, "generic_writing_task"
     if not floor:
         return False, "no_active_floor"
-    if _is_prompt_related_to_active_floor(prompt, floor):
-        return True, "related_to_active_floor"
-    return False, "not_related_to_active_floor"
+    if _is_generic_writing_prompt(prompt):
+        return False, "generic_writing_task"
+
+    return True, "related_to_active_floor"
 
 
 def normalize_query_response(
