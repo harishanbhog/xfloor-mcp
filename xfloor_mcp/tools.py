@@ -514,7 +514,19 @@ def register_tools(mcp: Any, client: XFloorClient) -> None:
 
     @mcp.tool(
         name="xfloor_get_floor_info",
-        description="Retrieve details for a Floor by floor_id, such as its name, identifier, and related metadata. Use this when the user explicitly asks for Floor details or when Floor metadata is needed to answer an xFloor-specific request. Do not use this for general public-web questions or generic assistant tasks.",
+        description=(
+            "Retrieve details for the currently relevant Floor, such as its name, identifier, and metadata. "
+            "Call this ONLY when the user’s current message explicitly asks for Floor details or metadata, for example: "
+            "'get the floor info', 'show floor details', 'what is the floor id', or 'what blocks are in this floor'. "
+            "Do NOT call this tool for general knowledge, paraphrasing, summarization, translation, meanings, rewriting, "
+            "weather, web search, or any request answerable without Floor metadata. "
+            "Do NOT call this tool just because a Floor is active, the conversation previously used a Floor, "
+            "Floor context might be helpful, or the assistant wants to verify context before answering. "
+            "Prior floor history, inferred topic, active floor state, or assistant convenience are never sufficient. "
+            "If the user’s current message does not explicitly ask for Floor details or metadata, do not call this tool. "
+            "If no active Floor is set, do not call this tool. "
+            "When in doubt, do not call it."
+        ),
         annotations={"readOnlyHint": True, "openWorldHint": False, "destructiveHint": False},
     )
     async def xfloor_get_floor_info(input: XFloorGetFloorInfoInput, ctx: Any = None) -> dict[str, Any]:
@@ -561,7 +573,13 @@ def register_tools(mcp: Any, client: XFloorClient) -> None:
 
     @mcp.tool(
         name="xfloor_set_active_floor",
-        description="Select or switch the active xFloor Floor for this conversation. Use this when the user explicitly wants to choose a Floor, such as 'use @phari' or 'switch to @croma', or when the request clearly depends on a specific xFloor context. Do not use this for general questions that can be answered without xFloor. This sets the active Floor context for later xFloor tool calls.",
+        description=(
+            "Call this ONLY when the user’s current message explicitly identifies a floor to use, either:"
+            "by directly asking to use/set/switch/select a floor, such as use @phari or switch to @croma, or"
+            "by including an inline @floor reference that clearly scopes the request to that floor, such as what’s happening @pesedu."
+            "Never call this tool based on prior floor history, inferred topic, ambiguous references, or assistant convenience. "
+            "If the current message does not explicitly name a floor with @..., do not call this tool. When in doubt, do not call it."
+        ),
         annotations={"readOnlyHint": False, "openWorldHint": False, "destructiveHint": False},
     )
     async def xfloor_set_active_floor(input: XFloorSetActiveFloorInput, ctx: Any = None) -> dict[str, Any]:
@@ -598,7 +616,11 @@ def register_tools(mcp: Any, client: XFloorClient) -> None:
 
     @mcp.tool(
         name="xfloor_clear_active_floor",
-        description="Clear the active xFloor Floor for this conversation. Use this when the user explicitly wants to remove or reset the current Floor context, such as 'clear the active floor' or 'stop using this floor'.",
+        description=(
+            "Call this ONLY when the user's current message EXPLICITLY wants to clear or remove the current Floor context, such as 'clear floor' or 'remove floor'. "
+            "Never call this tool based on prior floor history, inferred topic, ambiguous references, or assistant convenience. "
+            "Do not use it for general knowledge, paraphrasing, summarization, translation, meanings, rewriting, weather, web search, or any request answerable without floor context. When in doubt, do not call the tool."
+        ),
         annotations={"readOnlyHint": False, "openWorldHint": False, "destructiveHint": False},
     )
     async def xfloor_clear_active_floor(input: XFloorClearActiveFloorInput | None = None, ctx: Any = None) -> dict[str, Any]:
@@ -618,7 +640,17 @@ def register_tools(mcp: Any, client: XFloorClient) -> None:
 
     @mcp.tool(
         name="xfloor_query_current_floor",
-        description="Answer questions using the currently active xFloor Floor. Use this when the user is asking about the active Floor, its published source content, or context that depends on that specific Floor. Do not use this for general questions that are broadly answerable from public web search or generic model knowledge.",
+        description=(
+            "Use this tool ONLY if the answer to the user’s current message depends on information contained in the currently active xFloor Floor. "
+            "If the model can answer the request well without consulting Floor content, do NOT call this tool. "
+            "Do NOT use this tool for any self-contained request such as general knowledge, definitions, meanings, translation, paraphrasing, "
+            "rewriting, summarization, weather, web search, or other queries answerable without Floor content. "
+            "Do NOT call this tool because a Floor is active, because the conversation previously used a Floor, because the topic seems related, "
+            "or because Floor content might be helpful. Those are not valid reasons. "
+            "Only call when the requested answer must be grounded in the active Floor’s published content. "
+            "If no active Floor is set, do not call this tool. "
+            "When in doubt, do not call it."
+        ),
         annotations={"readOnlyHint": True, "openWorldHint": False, "destructiveHint": False},
     )
     async def xfloor_query_current_floor(input: XFloorQueryCurrentFloorInput, ctx: Any = None) -> dict[str, Any]:
@@ -697,7 +729,11 @@ def register_tools(mcp: Any, client: XFloorClient) -> None:
 
     @mcp.tool(
         name="xfloor_post_event_to_current_floor",
-        description="Create a text-only event in the currently active xFloor Floor. Use this when the user explicitly wants to post, log, or save text to the active Floor. Do not use this for general writing help, drafting, summarization, or requests that do not clearly ask to save content into xFloor.",
+        description=(
+            "Create a text-only event in the currently active xFloor Floor. Use this when the user explicitly wants to post, log, or save text to the active Floor. "
+            "Do not use it for general knowledge, paraphrasing, summarization, translation, meanings, rewriting, weather, web search, or any request answerable without floor context. "
+            "Do not use if there is no active floor set. When in doubt, do not call the tool."
+        ),
         annotations={"readOnlyHint": False, "openWorldHint": False, "destructiveHint": False},
     )
     async def xfloor_post_event_to_current_floor(input: XFloorPostEventToCurrentFloorInput, ctx: Any = None) -> dict[str, Any]:
