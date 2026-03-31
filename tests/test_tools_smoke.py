@@ -428,7 +428,12 @@ class TestToolsSmoke:
                     "result": {
                         "title": "Phari Campus",
                         "description": "Campus updates seminars sports events notices",
+                        "logo_url": "https://cdn.example/phari.png",
                         "tags": ["campus", "events"],
+                        "blocks": [
+                            {"id": "announcements", "name": "Announcements", "description": "Official notices"},
+                            {"id": "events", "name": "Events", "description": "Upcoming activities"},
+                        ],
                     }
                 }
 
@@ -464,8 +469,10 @@ class TestToolsSmoke:
             None,
         )
 
-        assert set_result["message"] == "Active floor set to phari"
+        assert set_result["message"].startswith("Active floor set to @phari")
         assert set_result["floor_title"] == "Phari Campus"
+        assert set_result["floor_logo_url"] == "https://cdn.example/phari.png"
+        assert set_result["blocks_count"] == 2
         assert query_result["floor_id"] == "phari"
         assert query_result["best_match"]["floorUrl"] == "phari.xfloor.ai"
         assert "Related floors:" in query_result["answer"]
@@ -1268,6 +1275,6 @@ async def test_current_floor_tools_continue_to_work_with_oauth_resolved_user() -
         None,
     )
 
-    assert set_result["message"] == "Active floor set to phari"
+    assert set_result["message"].startswith("Active floor set to @phari")
     assert query_result["floor_source"] == "session_state"
     assert post_result["posted"] is True

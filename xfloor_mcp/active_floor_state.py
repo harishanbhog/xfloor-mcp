@@ -99,6 +99,8 @@ def set_active_floor_state(
     floor_title: str | None = None,
     floor_description: str | None = None,
     floor_tags: list[str] | None = None,
+    floor_logo_url: str | None = None,
+    floor_blocks: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Persist active-floor state for the current session/context."""
 
@@ -111,6 +113,8 @@ def set_active_floor_state(
         "floor_title": floor_title,
         "floor_description": floor_description,
         "floor_tags": floor_tags or [],
+        "floor_logo_url": floor_logo_url,
+        "floor_blocks": floor_blocks or [],
         "updated_at": time.time(),
     }
     _ACTIVE_FLOOR_STATE[key] = state
@@ -122,6 +126,8 @@ def set_active_floor_state(
         "floor_title": floor_title,
         "floor_description": floor_description,
         "floor_tags": floor_tags or [],
+        "floor_logo_url": floor_logo_url,
+        "floor_blocks": floor_blocks or [],
     }
 
 
@@ -141,6 +147,8 @@ def get_active_floor_state() -> dict[str, Any] | None:
         "floor_title": state.get("floor_title"),
         "floor_description": state.get("floor_description"),
         "floor_tags": list(state.get("floor_tags") or []),
+        "floor_logo_url": state.get("floor_logo_url"),
+        "floor_blocks": list(state.get("floor_blocks") or []),
     }
 
 

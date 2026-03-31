@@ -173,6 +173,8 @@ def _resolve_active_floor_id() -> dict[str, str]:
             "floor_title": state.get("floor_title"),
             "floor_description": state.get("floor_description"),
             "floor_tags": state.get("floor_tags") or [],
+            "floor_logo_url": state.get("floor_logo_url"),
+            "floor_blocks": state.get("floor_blocks") or [],
             "source": "session_state",
         }
 
@@ -303,12 +305,75 @@ def _extract_floor_metadata(floor_payload: dict[str, Any], fallback_ref: str) ->
     ).strip() or None
     raw_tags = floor_data.get("tags") or floor_data.get("categories") or []
     tags = [str(item).strip() for item in raw_tags if str(item).strip()] if isinstance(raw_tags, list) else []
+    logo_url = str(
+        floor_data.get("logo")
+        or floor_data.get("logo_url")
+        or floor_data.get("logoUrl")
+        or floor_data.get("image")
+        or floor_data.get("image_url")
+        or floor_data.get("imageUrl")
+        or ""
+    ).strip() or None
+
+    raw_blocks = floor_data.get("blocks") or result.get("blocks") or []
+    blocks: list[dict[str, Any]] = []
+    if isinstance(raw_blocks, list):
+        for block in raw_blocks:
+            if not isinstance(block, dict):
+                continue
+            block_id = str(block.get("block_id") or block.get("id") or "").strip() or None
+            block_name = str(block.get("name") or block.get("title") or block.get("label") or "").strip() or None
+            block_description = str(block.get("description") or block.get("details") or "").strip() or None
+            block_type = str(block.get("type") or block.get("block_type") or "").strip() or None
+            if block_id or block_name or block_description or block_type:
+                blocks.append(
+                    {
+                        "block_id": block_id,
+                        "name": block_name,
+                        "description": block_description,
+                        "type": block_type,
+                    }
+                )
     return {
         "floor_handle": floor_handle,
         "floor_title": floor_title,
         "floor_description": floor_description,
         "floor_tags": tags,
+        "floor_logo_url": logo_url,
+        "floor_blocks": blocks,
     }
+
+
+def _format_set_active_floor_message(state: dict[str, Any]) -> str:
+    title = state.get("floor_title") or state.get("floor_ref")
+    description = state.get("floor_description") or "No description available."
+    logo_url = state.get("floor_logo_url")
+    blocks = state.get("floor_blocks") or []
+
+    lines = [
+        f"Active floor set to @{state['floor_ref']}",
+        f"Title: {title}",
+        f"Description: {description}",
+    ]
+    if logo_url:
+        lines.append(f"Logo: {logo_url}")
+    if blocks:
+        lines.append("Blocks:")
+        for block in blocks[:8]:
+            name = block.get("name") or block.get("block_id") or "Unnamed block"
+            block_type = block.get("type")
+            block_desc = block.get("description")
+            if block_type and block_desc:
+                lines.append(f"- {name} ({block_type}): {block_desc}")
+            elif block_type:
+                lines.append(f"- {name} ({block_type})")
+            elif block_desc:
+                lines.append(f"- {name}: {block_desc}")
+            else:
+                lines.append(f"- {name}")
+        if len(blocks) > 8:
+            lines.append(f"- …and {len(blocks) - 8} more")
+    return "\n".join(lines)
 
 
 def _tokenize(value: str) -> set[str]:
@@ -459,6 +524,47 @@ def normalize_query_response(
     return structured_content, meta
 
 
+def _build_floor_summary_widget_html() -> str:
+    return """<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <style>
+      body { font-family: system-ui, sans-serif; margin: 0; padding: 10px; color: #111; }
+      .card { border: 1px solid #e5e7eb; border-radius: 12px; padding: 10px; background: #fff; }
+      .header { font-weight: 700; font-size: 14px; margin-bottom: 8px; }
+      .body { font-size: 13px; white-space: pre-wrap; line-height: 1.4; color: #1f2937; }
+      .footer { margin-top: 10px; font-size: 12px; }
+      a { color: #2563eb; text-decoration: none; }
+      a:hover { text-decoration: underline; }
+    </style>
+  </head>
+  <body>
+    <div class="card">
+      <div class="header" id="header">xFloor</div>
+      <div class="body" id="body">No content.</div>
+      <div class="footer" id="footer"></div>
+    </div>
+    <script>
+      const api = window.openai || {};
+      const sc = (window.structuredContent || window.__structuredContent || api?.toolOutput?.structuredContent || {});
+      const active = sc.activeFloor || {};
+      const floorId = active.id || sc.floor_id || "";
+      const floorRef = active.name || sc.floor_ref || floorId || "No active floor";
+      const bodyText = sc.answer || sc.message || "No content.";
+      document.getElementById("header").textContent = "Active Floor: " + floorRef;
+      document.getElementById("body").textContent = bodyText;
+      if (floorId) {
+        const url = "https://" + floorId + ".xfloor.ai";
+        document.getElementById("footer").innerHTML = '<a href="' + url + '" target="_blank" rel="noopener noreferrer">Open active floor</a>';
+      } else {
+        document.getElementById("footer").textContent = "";
+      }
+    </script>
+  </body>
+</html>"""
+
+
 def register_tools(mcp: Any, client: XFloorClient) -> None:
     """Register MCP tools on the provided FastMCP instance."""
     enable_v1_expanded_tool_surface = False
@@ -589,6 +695,8 @@ def register_tools(mcp: Any, client: XFloorClient) -> None:
             "floor_title": None,
             "floor_description": None,
             "floor_tags": [],
+            "floor_logo_url": None,
+            "floor_blocks": [],
         }
         try:
             token = _extract_auth_token(ctx, None)
@@ -603,14 +711,20 @@ def register_tools(mcp: Any, client: XFloorClient) -> None:
             floor_title=metadata["floor_title"],
             floor_description=metadata["floor_description"],
             floor_tags=metadata["floor_tags"],
+            floor_logo_url=metadata["floor_logo_url"],
+            floor_blocks=metadata["floor_blocks"],
         )
+        detailed_message = _format_set_active_floor_message(state)
         return {
             "ok": True,
-            "message": f"Active floor set to {state['floor_ref']}",
+            "message": detailed_message,
             "floor_ref": state["floor_ref"],
             "floor_id": state["floor_id"],
             "floor_title": state.get("floor_title"),
             "floor_description": state.get("floor_description"),
+            "floor_logo_url": state.get("floor_logo_url"),
+            "blocks": state.get("floor_blocks") or [],
+            "blocks_count": len(state.get("floor_blocks") or []),
             "state_scope": "in_memory_session",
         }
 
