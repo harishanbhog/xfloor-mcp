@@ -735,7 +735,6 @@ def register_tools(mcp: Any, client: XFloorClient) -> None:
             "If the current message does not explicitly name a floor with @..., do not call this tool. When in doubt, do not call it."
         ),
         annotations={"readOnlyHint": False, "openWorldHint": False, "destructiveHint": False},
-        _meta={"openai/outputTemplate": SET_ACTIVE_FLOOR_WIDGET_URI},
     )
     async def xfloor_set_active_floor(input: XFloorSetActiveFloorInput, ctx: Any = None) -> dict[str, Any]:
         resolved = resolve_floor_reference(floor_ref=input.floor_ref, floor_id=input.floor_id)
