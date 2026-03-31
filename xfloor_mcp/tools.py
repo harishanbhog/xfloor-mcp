@@ -887,18 +887,15 @@ def register_tools(mcp: Any, client: XFloorClient, settings: Settings | None = N
             floor_logo_url=metadata["floor_logo_url"],
             floor_blocks=metadata["floor_blocks"],
         )
-        detailed_message = _format_set_active_floor_message(state)
-        markdown_card = _build_set_active_floor_markdown_card(state)
+        minimal_message = f"Active floor set to @{state['floor_ref']}"
         using_default_logo = not bool(state.get("floor_logo_url"))
         response = {
             "ok": True,
-            "message": detailed_message,
-            "markdown_card": markdown_card,
-            "assistant_reply": markdown_card,
+            "message": minimal_message,
             "content": [
                 {
                     "type": "text",
-                    "text": markdown_card,
+                    "text": minimal_message,
                 }
             ],
             "floor_ref": state["floor_ref"],
@@ -922,13 +919,12 @@ def register_tools(mcp: Any, client: XFloorClient, settings: Settings | None = N
             },
         }
         logger.info(
-            "xfloor_set_active_floor response prepared floor_id=%s blocks=%s widget_uri=%s template_uri=%s template_uri_match=%s markdown_len=%s default_logo=%s logo_normalized=%s",
+            "xfloor_set_active_floor response prepared floor_id=%s blocks=%s widget_uri=%s template_uri=%s template_uri_match=%s default_logo=%s logo_normalized=%s fallback_mode=minimal_widget_diagnostics",
             state["floor_id"],
             len(state.get("floor_blocks") or []),
             SET_ACTIVE_FLOOR_WIDGET_URI,
             response["_meta"]["openai/outputTemplate"],
             response["_meta"]["openai/outputTemplate"] == SET_ACTIVE_FLOOR_WIDGET_URI,
-            len(markdown_card),
             using_default_logo,
             bool(state.get("floor_logo_url")),
         )
