@@ -18,7 +18,7 @@ def create_stdio_server(settings: Settings) -> FastMCP:
         base_url=settings.xfloor_base_url,
         timeout_seconds=settings.xfloor_timeout_seconds,
     )
-    register_tools(mcp, client)
+    register_tools(mcp, client, settings=settings)
     return mcp
 
 

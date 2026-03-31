@@ -11,6 +11,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from .active_floor_state import clear_active_floor_state, get_active_floor_state, resolve_floor_reference, set_active_floor_state
 from .request_context import get_active_floor_id, get_auth_mode, get_auth_token, get_user_id, get_xfloor_service_token
+from .settings import Settings
 from .xfloor_client import XFloorClient
 
 logger = logging.getLogger(__name__)
@@ -658,7 +659,18 @@ def _build_floor_summary_widget_html() -> str:
 </html>"""
 
 
-def _build_set_active_floor_widget_resource() -> dict[str, Any]:
+def _build_set_active_floor_widget_resource(settings: Settings | None = None) -> dict[str, Any]:
+    connect_domains = list(dict.fromkeys((settings.xfloor_widget_connect_domains if settings else []) + ([settings.xfloor_base_url] if settings else [])))
+    resource_domains = settings.xfloor_widget_resource_domains if settings else ["https://persistent.oaistatic.com"]
+    ui_meta: dict[str, Any] = {
+        "csp": {
+            "connectDomains": connect_domains,
+            "resourceDomains": resource_domains,
+        }
+    }
+    if settings and settings.xfloor_widget_domain:
+        ui_meta["domain"] = settings.xfloor_widget_domain
+
     return {
         "contents": [
             {
@@ -672,19 +684,20 @@ def _build_set_active_floor_widget_resource() -> dict[str, Any]:
                         "connect_domains": [],
                         "resource_domains": [],
                     },
+                    "ui": ui_meta,
                 },
             }
         ]
     }
 
 
-def register_tools(mcp: Any, client: XFloorClient) -> None:
+def register_tools(mcp: Any, client: XFloorClient, settings: Settings | None = None) -> None:
     """Register MCP tools on the provided FastMCP instance."""
     enable_v1_expanded_tool_surface = False
 
     @mcp.resource(SET_ACTIVE_FLOOR_WIDGET_URI)
     def set_active_floor_widget() -> dict[str, Any]:
-        resource_payload = _build_set_active_floor_widget_resource()
+        resource_payload = _build_set_active_floor_widget_resource(settings)
         logger.info("set_active_floor widget resource served uri=%s", SET_ACTIVE_FLOOR_WIDGET_URI)
         return resource_payload
 

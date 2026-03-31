@@ -214,6 +214,8 @@ class TestToolsSmoke:
         assert widget_resource["contents"][0]["mimeType"] == "text/html"
         assert "openai/widgetDescription" in widget_resource["contents"][0]["_meta"]
         assert "openai/widgetCSP" in widget_resource["contents"][0]["_meta"]
+        assert "ui" in widget_resource["contents"][0]["_meta"]
+        assert "csp" in widget_resource["contents"][0]["_meta"]["ui"]
 
         assert get_type_hints(mcp.registry["xfloor_get_floor_info"])["input"] is XFloorGetFloorInfoInput
         assert get_type_hints(mcp.registry["xfloor_set_active_floor"])["input"] is XFloorSetActiveFloorInput
