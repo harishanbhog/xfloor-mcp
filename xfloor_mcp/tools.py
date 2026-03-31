@@ -735,6 +735,7 @@ def register_tools(mcp: Any, client: XFloorClient) -> None:
             "If the current message does not explicitly name a floor with @..., do not call this tool. When in doubt, do not call it."
         ),
         annotations={"readOnlyHint": False, "openWorldHint": False, "destructiveHint": False},
+        _meta={"openai/outputTemplate": SET_ACTIVE_FLOOR_WIDGET_URI},
     )
     async def xfloor_set_active_floor(input: XFloorSetActiveFloorInput, ctx: Any = None) -> dict[str, Any]:
         resolved = resolve_floor_reference(floor_ref=input.floor_ref, floor_id=input.floor_id)
@@ -751,7 +752,7 @@ def register_tools(mcp: Any, client: XFloorClient) -> None:
             floor_info_result = await client.get_floor_info(token, floor_id=resolved["floor_id"])
             metadata = _extract_floor_metadata(_compact(floor_info_result), resolved["floor_ref"])
         except Exception as exc:  # noqa: BLE001
-            logger.info("Active floor metadata fetch skipped due to error: %s", exc)
+            logger.warning("Active floor metadata fetch skipped due to error: %s", exc, exc_info=True)
         state = set_active_floor_state(
             floor_id=resolved["floor_id"],
             floor_ref=resolved["floor_ref"],
@@ -763,7 +764,7 @@ def register_tools(mcp: Any, client: XFloorClient) -> None:
             floor_blocks=metadata["floor_blocks"],
         )
         detailed_message = _format_set_active_floor_message(state)
-        return {
+        response = {
             "ok": True,
             "message": detailed_message,
             "floor_ref": state["floor_ref"],
@@ -786,6 +787,13 @@ def register_tools(mcp: Any, client: XFloorClient) -> None:
                 "openai/outputTemplate": SET_ACTIVE_FLOOR_WIDGET_URI,
             },
         }
+        logger.info(
+            "xfloor_set_active_floor response prepared floor_id=%s blocks=%s widget_uri=%s",
+            state["floor_id"],
+            len(state.get("floor_blocks") or []),
+            SET_ACTIVE_FLOOR_WIDGET_URI,
+        )
+        return response
 
     @mcp.tool(
         name="xfloor_clear_active_floor",

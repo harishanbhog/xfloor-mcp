@@ -232,6 +232,9 @@ class TestToolsSmoke:
             "openWorldHint": False,
             "destructiveHint": False,
         }
+        assert mcp.tool_kwargs["xfloor_set_active_floor"]["_meta"] == {
+            "openai/outputTemplate": SET_ACTIVE_FLOOR_WIDGET_URI,
+        }
         assert mcp.tool_kwargs["xfloor_clear_active_floor"]["annotations"] == {
             "readOnlyHint": False,
             "openWorldHint": False,
