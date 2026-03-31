@@ -43,6 +43,7 @@ if HAS_DEPS:
     )
     from xfloor_mcp.settings import Settings
     from xfloor_mcp.tools import (
+        SET_ACTIVE_FLOOR_WIDGET_URI,
         XFloorCreateEventInput,
         XFloorClearActiveFloorInput,
         XFloorFileInput,
@@ -206,6 +207,7 @@ class TestToolsSmoke:
             "xfloor_query_current_floor",
             "xfloor_post_event_to_current_floor",
         }
+        assert SET_ACTIVE_FLOOR_WIDGET_URI in mcp.resources
         assert "ui://widget/query-results-v1.html" not in mcp.resources
 
         assert get_type_hints(mcp.registry["xfloor_get_floor_info"])["input"] is XFloorGetFloorInfoInput
@@ -473,6 +475,9 @@ class TestToolsSmoke:
         assert set_result["floor_title"] == "Phari Campus"
         assert set_result["floor_logo_url"] == "https://cdn.example/phari.png"
         assert set_result["blocks_count"] == 2
+        assert set_result["_meta"]["openai/outputTemplate"] == SET_ACTIVE_FLOOR_WIDGET_URI
+        assert set_result["structuredContent"]["floor_id"] == "phari"
+        assert len(set_result["structuredContent"]["blocks"]) == 2
         assert query_result["floor_id"] == "phari"
         assert query_result["best_match"]["floorUrl"] == "phari.xfloor.ai"
         assert "Related floors:" in query_result["answer"]
