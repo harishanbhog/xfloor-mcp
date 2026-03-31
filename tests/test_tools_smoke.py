@@ -43,6 +43,7 @@ if HAS_DEPS:
     )
     from xfloor_mcp.settings import Settings
     from xfloor_mcp.tools import (
+        _normalize_logo_url,
         SET_ACTIVE_FLOOR_WIDGET_URI,
         XFloorCreateEventInput,
         XFloorClearActiveFloorInput,
@@ -83,6 +84,13 @@ def test_set_active_floor_input_accepts_string_and_common_alias_keys() -> None:
     from_nested_input_object = XFloorSetActiveFloorInput.model_validate({"input": {"floor_ref": "@pesedu"}})
     assert from_nested_input_object.floor_ref == "@pesedu"
     assert from_nested_input_object.floor_id is None
+
+
+def test_normalize_logo_url_handles_dict_and_list_inputs() -> None:
+    if not HAS_DEPS:
+        pytest.skip("requires pydantic/httpx")
+    assert _normalize_logo_url({"url": " https://cdn.example/logo.png "}) == "https://cdn.example/logo.png"
+    assert _normalize_logo_url([{"foo": "bar"}, {"src": "https://cdn.example/src.png"}]) == "https://cdn.example/src.png"
 
 
 def test_active_floor_state_isolated_by_session_key() -> None:
@@ -214,6 +222,8 @@ class TestToolsSmoke:
         assert widget_resource["contents"][0]["mimeType"] == "text/html"
         assert "openai/widgetDescription" in widget_resource["contents"][0]["_meta"]
         assert "openai/widgetCSP" in widget_resource["contents"][0]["_meta"]
+        assert "connectDomains" in widget_resource["contents"][0]["_meta"]["openai/widgetCSP"]
+        assert "resourceDomains" in widget_resource["contents"][0]["_meta"]["openai/widgetCSP"]
         assert "ui" in widget_resource["contents"][0]["_meta"]
         assert "csp" in widget_resource["contents"][0]["_meta"]["ui"]
 

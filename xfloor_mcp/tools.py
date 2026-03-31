@@ -316,7 +316,7 @@ def _extract_floor_metadata(floor_payload: dict[str, Any], fallback_ref: str) ->
     ).strip() or None
     raw_tags = floor_data.get("tags") or floor_data.get("categories") or []
     tags = [str(item).strip() for item in raw_tags if str(item).strip()] if isinstance(raw_tags, list) else []
-    logo_url = str(
+    logo_url = _normalize_logo_url(
         floor_data.get("avatar")
         or floor_data.get("avatar_url")
         or floor_data.get("avatarUrl")
@@ -326,8 +326,7 @@ def _extract_floor_metadata(floor_payload: dict[str, Any], fallback_ref: str) ->
         or floor_data.get("image")
         or floor_data.get("image_url")
         or floor_data.get("imageUrl")
-        or ""
-    ).strip() or None
+    )
 
     raw_blocks = floor_data.get("blocks") or result.get("blocks") or []
     blocks: list[dict[str, Any]] = []
@@ -356,6 +355,27 @@ def _extract_floor_metadata(floor_payload: dict[str, Any], fallback_ref: str) ->
         "floor_logo_url": logo_url,
         "floor_blocks": blocks,
     }
+
+
+def _normalize_logo_url(candidate: Any) -> str | None:
+    if candidate is None:
+        return None
+    if isinstance(candidate, str):
+        normalized = candidate.strip()
+        return normalized or None
+    if isinstance(candidate, dict):
+        for key in ("url", "avatar", "logo", "src", "href"):
+            value = candidate.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+        return None
+    if isinstance(candidate, list):
+        for item in candidate:
+            normalized = _normalize_logo_url(item)
+            if normalized:
+                return normalized
+        return None
+    return None
 
 
 def _format_set_active_floor_message(state: dict[str, Any]) -> str:
@@ -681,8 +701,8 @@ def _build_set_active_floor_widget_resource(settings: Settings | None = None) ->
                     "openai/widgetDescription": "Shows active floor details including title, description, logo, and blocks.",
                     "openai/widgetPrefersBorder": True,
                     "openai/widgetCSP": {
-                        "connect_domains": [],
-                        "resource_domains": [],
+                        "connectDomains": connect_domains,
+                        "resourceDomains": resource_domains,
                     },
                     "ui": ui_meta,
                 },
@@ -698,7 +718,15 @@ def register_tools(mcp: Any, client: XFloorClient, settings: Settings | None = N
     @mcp.resource(SET_ACTIVE_FLOOR_WIDGET_URI)
     def set_active_floor_widget() -> dict[str, Any]:
         resource_payload = _build_set_active_floor_widget_resource(settings)
-        logger.info("set_active_floor widget resource served uri=%s", SET_ACTIVE_FLOOR_WIDGET_URI)
+        csp_meta = resource_payload["contents"][0]["_meta"]["openai/widgetCSP"]
+        ui_meta = resource_payload["contents"][0]["_meta"].get("ui", {})
+        logger.info(
+            "set_active_floor widget resource served uri=%s csp_connect=%s csp_resource=%s ui_domain=%s",
+            SET_ACTIVE_FLOOR_WIDGET_URI,
+            csp_meta.get("connectDomains"),
+            csp_meta.get("resourceDomains"),
+            ui_meta.get("domain"),
+        )
         return resource_payload
 
     if enable_v1_expanded_tool_surface:
@@ -884,12 +912,14 @@ def register_tools(mcp: Any, client: XFloorClient, settings: Settings | None = N
             },
         }
         logger.info(
-            "xfloor_set_active_floor response prepared floor_id=%s blocks=%s widget_uri=%s markdown_len=%s default_logo=%s",
+            "xfloor_set_active_floor response prepared floor_id=%s blocks=%s widget_uri=%s template_uri=%s markdown_len=%s default_logo=%s logo_normalized=%s",
             state["floor_id"],
             len(state.get("floor_blocks") or []),
             SET_ACTIVE_FLOOR_WIDGET_URI,
+            response["_meta"]["openai/outputTemplate"],
             len(markdown_card),
             using_default_logo,
+            bool(state.get("floor_logo_url")),
         )
         return response
 
