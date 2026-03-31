@@ -691,7 +691,7 @@ def _build_set_active_floor_widget_resource(settings: Settings | None = None) ->
     if settings and settings.xfloor_widget_domain:
         ui_meta["domain"] = settings.xfloor_widget_domain
 
-    return {
+    payload = {
         "contents": [
             {
                 "uri": SET_ACTIVE_FLOOR_WIDGET_URI,
@@ -709,11 +709,21 @@ def _build_set_active_floor_widget_resource(settings: Settings | None = None) ->
             }
         ]
     }
+    logger.info(
+        "set_active_floor widget payload built uri=%s mime=%s openai_widget_csp=%s ui_csp=%s ui_domain=%s",
+        SET_ACTIVE_FLOOR_WIDGET_URI,
+        payload["contents"][0]["mimeType"],
+        payload["contents"][0]["_meta"].get("openai/widgetCSP"),
+        payload["contents"][0]["_meta"].get("ui", {}).get("csp"),
+        payload["contents"][0]["_meta"].get("ui", {}).get("domain"),
+    )
+    return payload
 
 
 def register_tools(mcp: Any, client: XFloorClient, settings: Settings | None = None) -> None:
     """Register MCP tools on the provided FastMCP instance."""
     enable_v1_expanded_tool_surface = False
+    logger.info("Registering set_active_floor widget resource uri=%s", SET_ACTIVE_FLOOR_WIDGET_URI)
 
     @mcp.resource(SET_ACTIVE_FLOOR_WIDGET_URI)
     def set_active_floor_widget() -> dict[str, Any]:
@@ -912,11 +922,12 @@ def register_tools(mcp: Any, client: XFloorClient, settings: Settings | None = N
             },
         }
         logger.info(
-            "xfloor_set_active_floor response prepared floor_id=%s blocks=%s widget_uri=%s template_uri=%s markdown_len=%s default_logo=%s logo_normalized=%s",
+            "xfloor_set_active_floor response prepared floor_id=%s blocks=%s widget_uri=%s template_uri=%s template_uri_match=%s markdown_len=%s default_logo=%s logo_normalized=%s",
             state["floor_id"],
             len(state.get("floor_blocks") or []),
             SET_ACTIVE_FLOOR_WIDGET_URI,
             response["_meta"]["openai/outputTemplate"],
+            response["_meta"]["openai/outputTemplate"] == SET_ACTIVE_FLOOR_WIDGET_URI,
             len(markdown_card),
             using_default_logo,
             bool(state.get("floor_logo_url")),

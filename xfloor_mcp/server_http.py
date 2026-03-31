@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from contextlib import asynccontextmanager
+import json
 import logging
 import time
 import uuid
@@ -123,6 +124,25 @@ def create_http_app(settings: Settings) -> FastAPI:
                 openai_session is None,
                 openai_session,
             )
+            if method == "POST":
+                try:
+                    raw_body = await request.body()
+                    payload = json.loads(raw_body.decode("utf-8")) if raw_body else {}
+                except Exception:  # noqa: BLE001
+                    payload = {}
+                rpc_method = payload.get("method") if isinstance(payload, dict) else None
+                params = payload.get("params") if isinstance(payload, dict) and isinstance(payload.get("params"), dict) else {}
+                if rpc_method:
+                    logger.info("MCP jsonrpc method request_id=%s method=%s", request_id, rpc_method)
+                if rpc_method in {"resources/read", "resources/templates/read", "resources/get"}:
+                    requested_uri = params.get("uri") or params.get("resource")
+                    logger.info(
+                        "MCP widget resource read request_id=%s rpc_method=%s uri=%s expected_set_active_uri=%s",
+                        request_id,
+                        rpc_method,
+                        requested_uri,
+                        "ui://widget/set-active-floor-v1.html",
+                    )
         if is_public_discovery_path(path):
             logger.info("Bypassing auth for public OAuth discovery path: %s", path)
             response = await call_next(request)
