@@ -834,6 +834,7 @@ def register_tools(mcp: Any, client: XFloorClient) -> None:
         )
         detailed_message = _format_set_active_floor_message(state)
         markdown_card = _build_set_active_floor_markdown_card(state)
+        using_default_logo = not bool(state.get("floor_logo_url"))
         response = {
             "ok": True,
             "message": detailed_message,
@@ -866,10 +867,12 @@ def register_tools(mcp: Any, client: XFloorClient) -> None:
             },
         }
         logger.info(
-            "xfloor_set_active_floor response prepared floor_id=%s blocks=%s widget_uri=%s",
+            "xfloor_set_active_floor response prepared floor_id=%s blocks=%s widget_uri=%s markdown_len=%s default_logo=%s",
             state["floor_id"],
             len(state.get("floor_blocks") or []),
             SET_ACTIVE_FLOOR_WIDGET_URI,
+            len(markdown_card),
+            using_default_logo,
         )
         return response
 
