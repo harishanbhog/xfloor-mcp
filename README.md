@@ -63,6 +63,9 @@ XFLOOR_OAUTH_RESOURCE=https://xFloorMCPTest
 XFLOOR_OAUTH_STUB_ISS=https://example.auth0.com/
 XFLOOR_OAUTH_STUB_SUB=auth0|demo-user
 XFLOOR_OAUTH_STUB_USER_ID=oauth-dev-user
+XFLOOR_WIDGET_DOMAIN=https://appfloor.in
+XFLOOR_WIDGET_CONNECT_DOMAINS=https://appfloor.in
+XFLOOR_WIDGET_RESOURCE_DOMAINS=https://persistent.oaistatic.com,https://appfloor.in
 ```
 
 Auth + identity behavior:

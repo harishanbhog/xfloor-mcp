@@ -48,10 +48,10 @@ class Settings(BaseSettings):
     )
     xfloor_auth0_audience: str | None = Field(default="https://xFloorMCPTest", alias="XFLOOR_AUTH0_AUDIENCE")
     xfloor_oauth_resource: str | None = Field(default=None, alias="XFLOOR_OAUTH_RESOURCE")
-    xfloor_widget_domain: str | None = Field(default=None, alias="XFLOOR_WIDGET_DOMAIN")
-    xfloor_widget_connect_domains: list[str] = Field(default=[], alias="XFLOOR_WIDGET_CONNECT_DOMAINS")
+    xfloor_widget_domain: str | None = Field(default="https://appfloor.in", alias="XFLOOR_WIDGET_DOMAIN")
+    xfloor_widget_connect_domains: list[str] = Field(default=["https://appfloor.in"], alias="XFLOOR_WIDGET_CONNECT_DOMAINS")
     xfloor_widget_resource_domains: list[str] = Field(
-        default=["https://persistent.oaistatic.com"],
+        default=["https://persistent.oaistatic.com", "https://appfloor.in"],
         alias="XFLOOR_WIDGET_RESOURCE_DOMAINS",
     )
 
