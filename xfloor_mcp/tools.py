@@ -307,15 +307,19 @@ def _extract_floor_metadata(floor_payload: dict[str, Any], fallback_ref: str) ->
         or ""
     ).strip() or None
     floor_description = str(
-        floor_data.get("description")
+        floor_data.get("details")
         or floor_data.get("floor_description")
         or floor_data.get("about")
+        or floor_data.get("description")
         or ""
     ).strip() or None
     raw_tags = floor_data.get("tags") or floor_data.get("categories") or []
     tags = [str(item).strip() for item in raw_tags if str(item).strip()] if isinstance(raw_tags, list) else []
     logo_url = str(
-        floor_data.get("logo")
+        floor_data.get("avatar")
+        or floor_data.get("avatar_url")
+        or floor_data.get("avatarUrl")
+        or floor_data.get("logo")
         or floor_data.get("logo_url")
         or floor_data.get("logoUrl")
         or floor_data.get("image")
