@@ -785,7 +785,10 @@ def register_tools(mcp: Any, client: XFloorClient) -> None:
             "by directly asking to use/set/switch/select a floor, such as use @phari or switch to @croma, or"
             "by including an inline @floor reference that clearly scopes the request to that floor, such as what’s happening @pesedu."
             "Never call this tool based on prior floor history, inferred topic, ambiguous references, or assistant convenience. "
-            "If the current message does not explicitly name a floor with @..., do not call this tool. When in doubt, do not call it."
+            "If the current message does not explicitly name a floor with @..., do not call this tool. When in doubt, do not call it. "
+            "After a successful call, present a visible floor summary to the user using the returned fields, including "
+            "floor title, floor description, logo URL (if present), and top blocks. Do not reduce the response to only "
+            "'active floor set' when richer details are available."
         ),
         annotations={"readOnlyHint": False, "openWorldHint": False, "destructiveHint": False},
     )
@@ -821,6 +824,7 @@ def register_tools(mcp: Any, client: XFloorClient) -> None:
             "ok": True,
             "message": detailed_message,
             "markdown_card": markdown_card,
+            "assistant_reply": markdown_card,
             "content": [
                 {
                     "type": "text",
