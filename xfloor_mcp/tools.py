@@ -15,6 +15,14 @@ from .xfloor_client import XFloorClient
 
 logger = logging.getLogger(__name__)
 SET_ACTIVE_FLOOR_WIDGET_URI = "ui://widget/set-active-floor-v1.html"
+DEFAULT_FLOOR_LOGO_DATA_URI = (
+    "data:image/svg+xml;utf8,"
+    "<svg xmlns='http://www.w3.org/2000/svg' width='120' height='120' viewBox='0 0 120 120'>"
+    "<rect width='120' height='120' rx='18' fill='%23E5E7EB'/>"
+    "<circle cx='60' cy='48' r='18' fill='%239CA3AF'/>"
+    "<rect x='28' y='78' width='64' height='12' rx='6' fill='%239CA3AF'/>"
+    "</svg>"
+)
 
 
 class XFloorQueryMemoryInput(BaseModel):
@@ -382,12 +390,17 @@ def _build_set_active_floor_markdown_card(state: dict[str, Any]) -> str:
     floor_ref = str(state.get("floor_ref") or "").lstrip("@")
     floor_id = state.get("floor_id")
     description = state.get("floor_description") or "No description available."
-    logo_url = state.get("floor_logo_url")
+    logo_url = state.get("floor_logo_url") or DEFAULT_FLOOR_LOGO_DATA_URI
     blocks = state.get("floor_blocks") or []
 
-    lines = [f"### ✅ Active Floor: @{floor_ref}", f"**Title:** {title}", f"**Description:** {description}"]
-    if logo_url:
-        lines.append(f"![{title} logo]({logo_url})")
+    lines = [
+        "<div style=\"background:#F8FAFC;border:1px solid #E5E7EB;border-radius:12px;padding:12px;\">",
+        f"<img src=\"{logo_url}\" alt=\"{title} logo\" width=\"72\" height=\"72\" style=\"border-radius:10px;object-fit:cover;border:1px solid #E5E7EB;\" />",
+        "",
+        f"### ✅ Active Floor: @{floor_ref}",
+        f"**Title:** {title}",
+        f"**Description:** {description}",
+    ]
     if blocks:
         lines.append("")
         lines.append("**Blocks**")
@@ -405,6 +418,7 @@ def _build_set_active_floor_markdown_card(state: dict[str, Any]) -> str:
     if floor_id:
         lines.append("")
         lines.append(f"[Open floor](https://{floor_id}.xfloor.ai)")
+    lines.append("</div>")
     return "\n".join(lines)
 
 

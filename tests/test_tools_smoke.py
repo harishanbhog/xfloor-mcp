@@ -480,8 +480,9 @@ class TestToolsSmoke:
         assert set_result["floor_title"] == "Phari Campus"
         assert set_result["floor_logo_url"] == "https://cdn.example/phari.png"
         assert set_result["blocks_count"] == 2
-        assert set_result["markdown_card"].startswith("### ✅ Active Floor: @phari")
-        assert set_result["assistant_reply"].startswith("### ✅ Active Floor: @phari")
+        assert set_result["markdown_card"].startswith("<div style=")
+        assert "### ✅ Active Floor: @phari" in set_result["markdown_card"]
+        assert set_result["assistant_reply"].startswith("<div style=")
         assert set_result["content"][0]["type"] == "text"
         assert "@phari" in set_result["content"][0]["text"]
         assert set_result["_meta"]["openai/outputTemplate"] == SET_ACTIVE_FLOOR_WIDGET_URI
