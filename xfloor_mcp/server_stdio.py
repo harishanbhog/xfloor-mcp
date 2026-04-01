@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from mcp.server.fastmcp import FastMCP
 
+from .hosts.factory import build_host_adapter
 from .request_context import set_app_id, set_auth_token, set_session_key, set_user_id
 from .settings import Settings
 from .tools import register_tools
@@ -18,7 +19,8 @@ def create_stdio_server(settings: Settings) -> FastMCP:
         base_url=settings.xfloor_base_url,
         timeout_seconds=settings.xfloor_timeout_seconds,
     )
-    register_tools(mcp, client, settings=settings)
+    host_adapter = build_host_adapter(settings)
+    register_tools(mcp, client, settings=settings, host_adapter=host_adapter)
     return mcp
 
 

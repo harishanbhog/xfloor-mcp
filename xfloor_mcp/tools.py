@@ -10,12 +10,13 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from .active_floor_state import clear_active_floor_state, get_active_floor_state, resolve_floor_reference, set_active_floor_state
+from .core.active_floor_response import build_core_set_active_floor_response
+from .hosts.openai.constants import SET_ACTIVE_FLOOR_WIDGET_URI  # backwards-compatible re-export
 from .request_context import get_active_floor_id, get_auth_mode, get_auth_token, get_user_id, get_xfloor_service_token
 from .settings import Settings
 from .xfloor_client import XFloorClient
 
 logger = logging.getLogger(__name__)
-SET_ACTIVE_FLOOR_WIDGET_URI = "ui://widget/set-active-floor-v1.html"
 DEFAULT_FLOOR_LOGO_DATA_URI = (
     "data:image/svg+xml;utf8,"
     "<svg xmlns='http://www.w3.org/2000/svg' width='120' height='120' viewBox='0 0 120 120'>"
@@ -595,149 +596,11 @@ def normalize_query_response(
     return structured_content, meta
 
 
-def _build_floor_summary_widget_html() -> str:
-    return """<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <style>
-      body { font-family: system-ui, sans-serif; margin: 0; padding: 10px; color: #111; background: #f8fafc; }
-      .card { border: 1px solid #e5e7eb; border-radius: 14px; padding: 12px; background: #fff; }
-      .top { display: flex; gap: 10px; align-items: center; margin-bottom: 8px; }
-      .logo { width: 44px; height: 44px; border-radius: 8px; object-fit: cover; border: 1px solid #e5e7eb; display: none; }
-      .title { font-weight: 700; font-size: 14px; line-height: 1.2; }
-      .handle { font-size: 12px; color: #6b7280; margin-top: 2px; }
-      .desc { font-size: 13px; line-height: 1.4; color: #1f2937; margin: 8px 0 10px 0; white-space: pre-wrap; }
-      .subhead { font-size: 12px; color: #374151; font-weight: 600; margin-bottom: 6px; }
-      .blocks { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
-      .block { border: 1px solid #eef2f7; border-radius: 8px; padding: 8px; }
-      .block-name { font-size: 12px; font-weight: 600; color: #111827; }
-      .block-meta { font-size: 12px; color: #6b7280; margin-top: 2px; }
-      .empty { font-size: 12px; color: #6b7280; }
-      .footer { margin-top: 10px; font-size: 12px; }
-      a { color: #2563eb; text-decoration: none; }
-      a:hover { text-decoration: underline; }
-    </style>
-  </head>
-  <body>
-    <div class="card">
-      <div class="top">
-        <img class="logo" id="logo" alt="Floor logo" />
-        <div>
-          <div class="title" id="title">xFloor</div>
-          <div class="handle" id="handle">@floor</div>
-        </div>
-      </div>
-      <div class="desc" id="desc">No description.</div>
-      <div class="subhead">Blocks</div>
-      <ul class="blocks" id="blocks"></ul>
-      <div class="empty" id="blocks-empty" style="display:none;">No blocks available.</div>
-      <div class="footer" id="footer"></div>
-    </div>
-    <script>
-      const api = window.openai || {};
-      const sc = (window.structuredContent || window.__structuredContent || api?.toolOutput?.structuredContent || {});
-      const floorId = sc.floor_id || "";
-      const floorRef = sc.floor_ref || floorId || "floor";
-      const floorTitle = sc.floor_title || floorRef;
-      const floorDescription = sc.floor_description || "No description available.";
-      const logoUrl = sc.floor_logo_url || "";
-      const blocks = Array.isArray(sc.blocks) ? sc.blocks : [];
-
-      document.getElementById("title").textContent = floorTitle;
-      document.getElementById("handle").textContent = "@" + String(floorRef).replace(/^@/, "");
-      document.getElementById("desc").textContent = floorDescription;
-      const logoEl = document.getElementById("logo");
-      if (logoUrl) {
-        logoEl.src = logoUrl;
-        logoEl.style.display = "block";
-      }
-
-      const listEl = document.getElementById("blocks");
-      const emptyEl = document.getElementById("blocks-empty");
-      if (!blocks.length) {
-        emptyEl.style.display = "block";
-      } else {
-        blocks.slice(0, 8).forEach((block) => {
-          const li = document.createElement("li");
-          li.className = "block";
-          const name = block.name || block.block_id || "Unnamed block";
-          const type = block.type ? " (" + block.type + ")" : "";
-          const desc = block.description || "";
-          li.innerHTML = '<div class="block-name">' + name + type + '</div>' + (desc ? '<div class="block-meta">' + desc + '</div>' : '');
-          listEl.appendChild(li);
-        });
-      }
-      if (floorId) {
-        const url = "https://" + floorId + ".xfloor.ai";
-        document.getElementById("footer").innerHTML = '<a href="' + url + '" target="_blank" rel="noopener noreferrer">Open active floor</a>';
-      } else {
-        document.getElementById("footer").textContent = "";
-      }
-    </script>
-  </body>
-</html>"""
-
-
-def _build_set_active_floor_widget_resource(settings: Settings | None = None) -> dict[str, Any]:
-    connect_domains = list(dict.fromkeys((settings.xfloor_widget_connect_domains if settings else []) + ([settings.xfloor_base_url] if settings else [])))
-    resource_domains = settings.xfloor_widget_resource_domains if settings else ["https://persistent.oaistatic.com"]
-    ui_meta: dict[str, Any] = {
-        "csp": {
-            "connectDomains": connect_domains,
-            "resourceDomains": resource_domains,
-        }
-    }
-    if settings and settings.xfloor_widget_domain:
-        ui_meta["domain"] = settings.xfloor_widget_domain
-
-    payload = {
-        "contents": [
-            {
-                "uri": SET_ACTIVE_FLOOR_WIDGET_URI,
-                "mimeType": "text/html",
-                "text": _build_floor_summary_widget_html(),
-                "_meta": {
-                    "openai/widgetDescription": "Shows active floor details including title, description, logo, and blocks.",
-                    "openai/widgetPrefersBorder": True,
-                    "openai/widgetCSP": {
-                        "connectDomains": connect_domains,
-                        "resourceDomains": resource_domains,
-                    },
-                    "ui": ui_meta,
-                },
-            }
-        ]
-    }
-    logger.info(
-        "set_active_floor widget payload built uri=%s mime=%s openai_widget_csp=%s ui_csp=%s ui_domain=%s",
-        SET_ACTIVE_FLOOR_WIDGET_URI,
-        payload["contents"][0]["mimeType"],
-        payload["contents"][0]["_meta"].get("openai/widgetCSP"),
-        payload["contents"][0]["_meta"].get("ui", {}).get("csp"),
-        payload["contents"][0]["_meta"].get("ui", {}).get("domain"),
-    )
-    return payload
-
-
-def register_tools(mcp: Any, client: XFloorClient, settings: Settings | None = None) -> None:
+def register_tools(mcp: Any, client: XFloorClient, settings: Settings | None = None, host_adapter: Any | None = None) -> None:
     """Register MCP tools on the provided FastMCP instance."""
     enable_v1_expanded_tool_surface = False
-    logger.info("Registering set_active_floor widget resource uri=%s", SET_ACTIVE_FLOOR_WIDGET_URI)
-
-    @mcp.resource(SET_ACTIVE_FLOOR_WIDGET_URI)
-    def set_active_floor_widget() -> dict[str, Any]:
-        resource_payload = _build_set_active_floor_widget_resource(settings)
-        csp_meta = resource_payload["contents"][0]["_meta"]["openai/widgetCSP"]
-        ui_meta = resource_payload["contents"][0]["_meta"].get("ui", {})
-        logger.info(
-            "set_active_floor widget resource served uri=%s csp_connect=%s csp_resource=%s ui_domain=%s",
-            SET_ACTIVE_FLOOR_WIDGET_URI,
-            csp_meta.get("connectDomains"),
-            csp_meta.get("resourceDomains"),
-            ui_meta.get("domain"),
-        )
-        return resource_payload
+    if host_adapter and getattr(host_adapter, "capabilities", None) and host_adapter.capabilities.supports_widget_resources:
+        host_adapter.register_resources(mcp)
 
     if enable_v1_expanded_tool_surface:
         @mcp.tool(
@@ -887,44 +750,17 @@ def register_tools(mcp: Any, client: XFloorClient, settings: Settings | None = N
             floor_logo_url=metadata["floor_logo_url"],
             floor_blocks=metadata["floor_blocks"],
         )
-        minimal_message = f"Active floor set to @{state['floor_ref']}"
         using_default_logo = not bool(state.get("floor_logo_url"))
-        response = {
-            "ok": True,
-            "message": minimal_message,
-            "content": [
-                {
-                    "type": "text",
-                    "text": minimal_message,
-                }
-            ],
-            "floor_ref": state["floor_ref"],
-            "floor_id": state["floor_id"],
-            "floor_title": state.get("floor_title"),
-            "floor_description": state.get("floor_description"),
-            "floor_logo_url": state.get("floor_logo_url"),
-            "blocks": state.get("floor_blocks") or [],
-            "blocks_count": len(state.get("floor_blocks") or []),
-            "state_scope": "in_memory_session",
-            "structuredContent": {
-                "floor_ref": state["floor_ref"],
-                "floor_id": state["floor_id"],
-                "floor_title": state.get("floor_title"),
-                "floor_description": state.get("floor_description"),
-                "floor_logo_url": state.get("floor_logo_url"),
-                "blocks": state.get("floor_blocks") or [],
-            },
-            "_meta": {
-                "openai/outputTemplate": SET_ACTIVE_FLOOR_WIDGET_URI,
-            },
-        }
+        core_response = build_core_set_active_floor_response(state)
+        response = host_adapter.decorate_set_active_floor_response(core_response) if host_adapter else core_response
+        template_uri = ((response.get("_meta") or {}).get("openai/outputTemplate")) if isinstance(response, dict) else None
         logger.info(
             "xfloor_set_active_floor response prepared floor_id=%s blocks=%s widget_uri=%s template_uri=%s template_uri_match=%s default_logo=%s logo_normalized=%s fallback_mode=minimal_widget_diagnostics",
             state["floor_id"],
             len(state.get("floor_blocks") or []),
             SET_ACTIVE_FLOOR_WIDGET_URI,
-            response["_meta"]["openai/outputTemplate"],
-            response["_meta"]["openai/outputTemplate"] == SET_ACTIVE_FLOOR_WIDGET_URI,
+            template_uri,
+            template_uri == SET_ACTIVE_FLOOR_WIDGET_URI,
             using_default_logo,
             bool(state.get("floor_logo_url")),
         )

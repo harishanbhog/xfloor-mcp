@@ -23,6 +23,7 @@ from .auth import (
     protected_resource_metadata,
     resolve_request_identity,
 )
+from .hosts.factory import build_host_adapter
 from .request_context import (
     set_auth_mode,
     set_active_floor_id,
@@ -87,7 +88,8 @@ def create_http_app(settings: Settings) -> FastAPI:
         base_url=settings.xfloor_base_url,
         timeout_seconds=settings.xfloor_timeout_seconds,
     )
-    register_tools(mcp, client, settings=settings)
+    host_adapter = build_host_adapter(settings)
+    register_tools(mcp, client, settings=settings, host_adapter=host_adapter)
 
     app = FastAPI(title=settings.app_name, lifespan=_lifespan)
     app.state.mcp = mcp
