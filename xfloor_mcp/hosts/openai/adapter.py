@@ -48,21 +48,30 @@ class OpenAIHostAdapter:
         if self.settings and self.settings.xfloor_widget_domain:
             ui_meta["domain"] = self.settings.xfloor_widget_domain
 
+        widget_csp = {
+            "connectDomains": connect_domains,
+            "resourceDomains": resource_domains,
+            # Added for compatibility with host inspectors that render snake_case keys.
+            "connect_domains": connect_domains,
+            "resource_domains": resource_domains,
+        }
+
+        widget_meta: dict[str, Any] = {
+            "openai/widgetDescription": "Shows active floor details including title, description, logo, and blocks.",
+            "openai/widgetPrefersBorder": True,
+            "openai/widgetCSP": widget_csp,
+            "ui": ui_meta,
+        }
+        if self.settings and self.settings.xfloor_widget_domain:
+            widget_meta["openai/widgetDomain"] = self.settings.xfloor_widget_domain
+
         payload = {
             "contents": [
                 {
                     "uri": SET_ACTIVE_FLOOR_WIDGET_URI,
                     "mimeType": "text/html",
                     "text": build_floor_summary_widget_html(),
-                    "_meta": {
-                        "openai/widgetDescription": "Shows active floor details including title, description, logo, and blocks.",
-                        "openai/widgetPrefersBorder": True,
-                        "openai/widgetCSP": {
-                            "connectDomains": connect_domains,
-                            "resourceDomains": resource_domains,
-                        },
-                        "ui": ui_meta,
-                    },
+                    "_meta": widget_meta,
                 }
             ]
         }
@@ -84,20 +93,38 @@ class OpenAIHostAdapter:
             )
         )
         resource_domains = self.settings.xfloor_widget_resource_domains if self.settings else ["https://persistent.oaistatic.com"]
+        ui_meta: dict[str, Any] = {
+            "csp": {
+                "connectDomains": connect_domains,
+                "resourceDomains": resource_domains,
+            }
+        }
+        if self.settings and self.settings.xfloor_widget_domain:
+            ui_meta["domain"] = self.settings.xfloor_widget_domain
+
+        widget_csp = {
+            "connectDomains": connect_domains,
+            "resourceDomains": resource_domains,
+            "connect_domains": connect_domains,
+            "resource_domains": resource_domains,
+        }
+
+        query_widget_meta: dict[str, Any] = {
+            "openai/widgetDescription": "Shows floor query answer with related floor links.",
+            "openai/widgetPrefersBorder": True,
+            "openai/widgetCSP": widget_csp,
+            "ui": ui_meta,
+        }
+        if self.settings and self.settings.xfloor_widget_domain:
+            query_widget_meta["openai/widgetDomain"] = self.settings.xfloor_widget_domain
+
         return {
             "contents": [
                 {
                     "uri": QUERY_CURRENT_FLOOR_WIDGET_URI,
                     "mimeType": "text/html",
                     "text": build_query_floor_answer_widget_html(),
-                    "_meta": {
-                        "openai/widgetDescription": "Shows floor query answer with related floor links.",
-                        "openai/widgetPrefersBorder": True,
-                        "openai/widgetCSP": {
-                            "connectDomains": connect_domains,
-                            "resourceDomains": resource_domains,
-                        },
-                    },
+                    "_meta": query_widget_meta,
                 }
             ]
         }

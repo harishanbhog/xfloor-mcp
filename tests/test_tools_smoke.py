@@ -222,13 +222,18 @@ class TestToolsSmoke:
         assert widget_resource["contents"][0]["mimeType"] == "text/html"
         assert "openai/widgetDescription" in widget_resource["contents"][0]["_meta"]
         assert "openai/widgetCSP" in widget_resource["contents"][0]["_meta"]
+        assert "openai/widgetDomain" in widget_resource["contents"][0]["_meta"]
         assert "connectDomains" in widget_resource["contents"][0]["_meta"]["openai/widgetCSP"]
         assert "resourceDomains" in widget_resource["contents"][0]["_meta"]["openai/widgetCSP"]
+        assert "connect_domains" in widget_resource["contents"][0]["_meta"]["openai/widgetCSP"]
+        assert "resource_domains" in widget_resource["contents"][0]["_meta"]["openai/widgetCSP"]
         assert "ui" in widget_resource["contents"][0]["_meta"]
         assert "csp" in widget_resource["contents"][0]["_meta"]["ui"]
         query_widget_resource = mcp.resources["ui://widget/query-current-floor-v1.html"]()
         assert query_widget_resource["contents"][0]["uri"] == "ui://widget/query-current-floor-v1.html"
         assert query_widget_resource["contents"][0]["mimeType"] == "text/html"
+        assert "openai/widgetDomain" in query_widget_resource["contents"][0]["_meta"]
+        assert "ui" in query_widget_resource["contents"][0]["_meta"]
 
         assert get_type_hints(mcp.registry["xfloor_get_floor_info"])["input"] is XFloorGetFloorInfoInput
         assert get_type_hints(mcp.registry["xfloor_set_active_floor"])["input"] is XFloorSetActiveFloorInput
