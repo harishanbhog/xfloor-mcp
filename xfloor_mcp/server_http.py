@@ -251,10 +251,19 @@ def create_http_app(settings: Settings) -> FastAPI:
                 )
                 duration_ms = (time.perf_counter() - started) * 1000
                 logger.info(
-                    "MCP middleware synthetic %s response request_id=%s resources=%s duration_ms=%.1f",
+                    "MCP middleware synthetic %s response request_id=%s resource_count=%s resources=%s duration_ms=%.1f",
                     rpc_method,
                     request_id,
-                    [item["uri"] for item in resource_items],
+                    len(resource_items),
+                    [
+                        {
+                            "uri": item["uri"],
+                            "name": item.get("name"),
+                            "mimeType": item.get("mimeType"),
+                            "meta_keys": sorted((item.get("_meta") or {}).keys()),
+                        }
+                        for item in resource_items
+                    ],
                     duration_ms,
                 )
                 return response

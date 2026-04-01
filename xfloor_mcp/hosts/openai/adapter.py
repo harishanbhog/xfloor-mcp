@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import inspect
 from dataclasses import dataclass
 from typing import Any
 
@@ -29,6 +30,31 @@ class OpenAIHostAdapter:
         supports_html_widgets=True,
         supports_host_metadata_injection=True,
     )
+
+    def _build_registration_kwargs(self, mcp: Any, *, name: str, description: str, meta: dict[str, Any]) -> dict[str, Any]:
+        """Build best-effort resource registration kwargs for current runtime signature."""
+
+        try:
+            supported = set(inspect.signature(mcp.resource).parameters.keys())
+        except (TypeError, ValueError):
+            supported = set()
+
+        kwargs: dict[str, Any] = {}
+        if "name" in supported:
+            kwargs["name"] = name
+        if "description" in supported:
+            kwargs["description"] = description
+        if "mime_type" in supported:
+            kwargs["mime_type"] = "text/html"
+        elif "mimeType" in supported:
+            kwargs["mimeType"] = "text/html"
+        if "_meta" in supported:
+            kwargs["_meta"] = meta
+        elif "meta" in supported:
+            kwargs["meta"] = meta
+
+        logger.info("openai resource registration kwargs resolved supported=%s kwargs_keys=%s", sorted(supported), sorted(kwargs.keys()))
+        return kwargs
 
     def _build_widget_resource(self) -> dict[str, Any]:
         connect_domains = list(
@@ -144,15 +170,35 @@ class OpenAIHostAdapter:
             SET_ACTIVE_FLOOR_WIDGET_URI,
             QUERY_CURRENT_FLOOR_WIDGET_URI,
         )
-        set_active_kwargs = (
-            {"name": "xFloor Active Floor", "description": "OpenAI widget template for xFloor set-active-floor responses.", "mime_type": "text/html"},
-            {"name": "xFloor Active Floor", "description": "OpenAI widget template for xFloor set-active-floor responses.", "mimeType": "text/html"},
-            {},
+        set_active_registration_meta = {
+            "ui": {
+                "csp": {
+                    "connectDomains": self.settings.xfloor_widget_connect_domains if self.settings else [],
+                    "resourceDomains": self.settings.xfloor_widget_resource_domains if self.settings else [],
+                },
+                "domain": self.settings.xfloor_widget_domain if self.settings else None,
+            }
+        }
+        query_registration_meta = {
+            "ui": {
+                "csp": {
+                    "connectDomains": self.settings.xfloor_widget_connect_domains if self.settings else [],
+                    "resourceDomains": self.settings.xfloor_widget_resource_domains if self.settings else [],
+                },
+                "domain": self.settings.xfloor_widget_domain if self.settings else None,
+            }
+        }
+        set_active_kwargs = self._build_registration_kwargs(
+            mcp,
+            name="xfloor-set-active-floor-v1",
+            description="OpenAI widget template for xFloor set-active-floor responses.",
+            meta=set_active_registration_meta,
         )
-        query_kwargs = (
-            {"name": "xFloor Query Result", "description": "OpenAI widget template for xFloor query-current-floor responses.", "mime_type": "text/html"},
-            {"name": "xFloor Query Result", "description": "OpenAI widget template for xFloor query-current-floor responses.", "mimeType": "text/html"},
-            {},
+        query_kwargs = self._build_registration_kwargs(
+            mcp,
+            name="xfloor-query-current-floor-v1",
+            description="OpenAI widget template for xFloor query-current-floor responses.",
+            meta=query_registration_meta,
         )
 
         def openai_set_active_floor_widget() -> dict[str, Any]:
@@ -181,19 +227,15 @@ class OpenAIHostAdapter:
             )
             return resource_payload
 
-        for candidate in set_active_kwargs:
-            try:
-                mcp.resource(SET_ACTIVE_FLOOR_WIDGET_URI, **candidate)(openai_set_active_floor_widget)
-                break
-            except TypeError:
-                continue
+        try:
+            mcp.resource(SET_ACTIVE_FLOOR_WIDGET_URI, **set_active_kwargs)(openai_set_active_floor_widget)
+        except TypeError:
+            mcp.resource(SET_ACTIVE_FLOOR_WIDGET_URI)(openai_set_active_floor_widget)
 
-        for candidate in query_kwargs:
-            try:
-                mcp.resource(QUERY_CURRENT_FLOOR_WIDGET_URI, **candidate)(openai_query_current_floor_widget)
-                break
-            except TypeError:
-                continue
+        try:
+            mcp.resource(QUERY_CURRENT_FLOOR_WIDGET_URI, **query_kwargs)(openai_query_current_floor_widget)
+        except TypeError:
+            mcp.resource(QUERY_CURRENT_FLOOR_WIDGET_URI)(openai_query_current_floor_widget)
 
     def decorate_set_active_floor_response(self, core_response: dict[str, Any]) -> dict[str, Any]:
         decorated = dict(core_response)
