@@ -29,7 +29,7 @@ _SAMPLE_QUERY_DATA = {
 
 def _build_query_current_floor_document(*, preview_data: dict | None = None) -> str:
     preview_json = json.dumps(preview_data or {})
-    return f"""<!doctype html>
+    template = """<!doctype html>
 <html lang=\"en\">
   <head>
     <meta charset=\"utf-8\" />
@@ -57,7 +57,7 @@ def _build_query_current_floor_document(*, preview_data: dict | None = None) -> 
       </div>
     </section>
     <script>
-      const PREVIEW_DATA = {preview_json};
+      const PREVIEW_DATA = __PREVIEW_JSON__;
       const api = window.openai || {};
       const sc = Object.keys(PREVIEW_DATA).length
         ? PREVIEW_DATA
@@ -90,6 +90,7 @@ def _build_query_current_floor_document(*, preview_data: dict | None = None) -> 
     </script>
   </body>
 </html>"""
+    return template.replace("__PREVIEW_JSON__", preview_json)
 
 
 def build_query_current_floor_widget_html() -> str:
