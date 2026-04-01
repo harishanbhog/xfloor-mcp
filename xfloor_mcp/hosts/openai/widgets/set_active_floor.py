@@ -25,7 +25,7 @@ _SAMPLE_WIDGET_DATA: dict[str, Any] = {
 
 
 def _build_widget_document(*, preview_data: dict[str, Any] | None = None) -> str:
-    initial_data_json = json.dumps(preview_data or {})
+    initial_data_json = json.dumps(preview_data or {}, ensure_ascii=False).replace("</", "<\\/")
     return f"""<!doctype html>
 <html lang=\"en\">
   <head>
@@ -55,8 +55,17 @@ def _build_widget_document(*, preview_data: dict[str, Any] | None = None) -> str
   </head>
   <body>
     <div class=\"widget-shell\" id=\"widget-root\"></div>
+    <script id=\"widget-preview-data\" type=\"application/json\">{initial_data_json}</script>
     <script>
-      const PREVIEW_DATA = {initial_data_json};
+      function readPreviewData() {{
+        const node = document.getElementById("widget-preview-data");
+        if (!node) return {{}};
+        try {{
+          return JSON.parse(node.textContent || "{{}}");
+        }} catch (_err) {{
+          return {{}};
+        }}
+      }}
 
       function normalizeText(value) {{
         return typeof value === "string" ? value.trim() : "";
@@ -70,7 +79,8 @@ def _build_widget_document(*, preview_data: dict[str, Any] | None = None) -> str
       }}
 
       function getStructuredContent() {{
-        if (Object.keys(PREVIEW_DATA).length) return PREVIEW_DATA;
+        const previewData = readPreviewData();
+        if (Object.keys(previewData).length) return previewData;
         const api = window.openai || {{}};
         return (
           window.structuredContent ||

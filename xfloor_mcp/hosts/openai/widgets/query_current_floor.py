@@ -28,7 +28,7 @@ _SAMPLE_QUERY_DATA = {
 
 
 def _build_query_current_floor_document(*, preview_data: dict | None = None) -> str:
-    preview_json = json.dumps(preview_data or {})
+    preview_json = json.dumps(preview_data or {}, ensure_ascii=False).replace("</", "<\\/")
     template = """<!doctype html>
 <html lang=\"en\">
   <head>
@@ -56,8 +56,18 @@ def _build_query_current_floor_document(*, preview_data: dict | None = None) -> 
         <div id=\"links\" class=\"links\"></div>
       </div>
     </section>
+    <script id=\"widget-preview-data\" type=\"application/json\">__PREVIEW_JSON__</script>
     <script>
-      const PREVIEW_DATA = __PREVIEW_JSON__;
+      function readPreviewData() {{
+        const node = document.getElementById('widget-preview-data');
+        if (!node) return {};
+        try {{
+          return JSON.parse(node.textContent || '{}');
+        }} catch (_err) {{
+          return {};
+        }}
+      }}
+      const PREVIEW_DATA = readPreviewData();
       const api = window.openai || {};
       const sc = Object.keys(PREVIEW_DATA).length
         ? PREVIEW_DATA
