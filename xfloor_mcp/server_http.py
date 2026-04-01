@@ -278,6 +278,21 @@ def create_http_app(settings: Settings) -> FastAPI:
                     ],
                     duration_ms,
                 )
+                logger.info("resources/list returning count=%s", len(resource_items))
+                for item in resource_items:
+                    meta = item.get("_meta") or {}
+                    ui = meta.get("ui") or {}
+                    logger.info(
+                        "resources/list item uri=%s name=%s mime=%s has_meta=%s meta_keys=%s has_ui=%s has_ui_domain=%s has_ui_csp=%s",
+                        item.get("uri"),
+                        item.get("name"),
+                        item.get("mimeType"),
+                        bool(meta),
+                        sorted(meta.keys()),
+                        bool(ui),
+                        "domain" in ui and bool(ui.get("domain")),
+                        "csp" in ui and bool(ui.get("csp")),
+                    )
                 return response
             response = await call_next(request)
             duration_ms = (time.perf_counter() - started) * 1000
