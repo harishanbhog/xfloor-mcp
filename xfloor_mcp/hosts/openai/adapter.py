@@ -131,8 +131,17 @@ class OpenAIHostAdapter:
 
     def register_resources(self, mcp: Any) -> None:
         logger.info("Registering openai widget resource uri=%s", SET_ACTIVE_FLOOR_WIDGET_URI)
+        set_active_kwargs = (
+            {"name": "xFloor Active Floor", "description": "OpenAI widget template for xFloor set-active-floor responses.", "mime_type": "text/html"},
+            {"name": "xFloor Active Floor", "description": "OpenAI widget template for xFloor set-active-floor responses.", "mimeType": "text/html"},
+            {},
+        )
+        query_kwargs = (
+            {"name": "xFloor Query Result", "description": "OpenAI widget template for xFloor query-current-floor responses.", "mime_type": "text/html"},
+            {"name": "xFloor Query Result", "description": "OpenAI widget template for xFloor query-current-floor responses.", "mimeType": "text/html"},
+            {},
+        )
 
-        @mcp.resource(SET_ACTIVE_FLOOR_WIDGET_URI)
         def openai_set_active_floor_widget() -> dict[str, Any]:
             resource_payload = self._build_widget_resource()
             csp_meta = resource_payload["contents"][0]["_meta"]["openai/widgetCSP"]
@@ -146,9 +155,22 @@ class OpenAIHostAdapter:
             )
             return resource_payload
 
-        @mcp.resource(QUERY_CURRENT_FLOOR_WIDGET_URI)
         def openai_query_current_floor_widget() -> dict[str, Any]:
             return self._build_query_widget_resource()
+
+        for candidate in set_active_kwargs:
+            try:
+                mcp.resource(SET_ACTIVE_FLOOR_WIDGET_URI, **candidate)(openai_set_active_floor_widget)
+                break
+            except TypeError:
+                continue
+
+        for candidate in query_kwargs:
+            try:
+                mcp.resource(QUERY_CURRENT_FLOOR_WIDGET_URI, **candidate)(openai_query_current_floor_widget)
+                break
+            except TypeError:
+                continue
 
     def decorate_set_active_floor_response(self, core_response: dict[str, Any]) -> dict[str, Any]:
         decorated = dict(core_response)
