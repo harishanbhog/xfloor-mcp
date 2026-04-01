@@ -1388,3 +1388,14 @@ def test_resources_list_returns_openai_widget_templates_for_discovery(monkeypatc
     uris = [item.get("uri") for item in payload["result"]["resources"]]
     assert "ui://widget/set-active-floor-v1.html" in uris
     assert "ui://widget/query-current-floor-v1.html" in uris
+
+
+@pytest.mark.skipif(not HAS_DEPS, reason="requires pydantic/httpx")
+def test_settings_accepts_csv_for_widget_domain_lists(monkeypatch: pytest.MonkeyPatch) -> None:
+    from xfloor_mcp.settings import Settings
+
+    monkeypatch.setenv("XFLOOR_WIDGET_CONNECT_DOMAINS", "https://appfloor.in")
+    monkeypatch.setenv("XFLOOR_WIDGET_RESOURCE_DOMAINS", "https://persistent.oaistatic.com,https://appfloor.in")
+    settings = Settings()
+    assert settings.xfloor_widget_connect_domains == ["https://appfloor.in"]
+    assert settings.xfloor_widget_resource_domains == ["https://persistent.oaistatic.com", "https://appfloor.in"]
