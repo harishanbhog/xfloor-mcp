@@ -12,7 +12,7 @@ from typing import Any, AsyncIterator
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from mcp.server.fastmcp import FastMCP
 
 from .auth import (
@@ -24,6 +24,7 @@ from .auth import (
     resolve_request_identity,
 )
 from .hosts.factory import build_host_adapter
+from .hosts.openai.widgets.set_active_floor import build_set_active_floor_preview_html
 from .request_context import (
     set_auth_mode,
     set_active_floor_id,
@@ -244,6 +245,13 @@ def create_http_app(settings: Settings) -> FastAPI:
     @app.get("/healthz")
     async def healthz() -> dict[str, bool]:
         return {"ok": True}
+
+    if getattr(host_adapter, "name", "") == "openai":
+        logger.info("Registering OpenAI widget preview route path=%s", "/preview/openai/set-active-floor")
+
+        @app.get("/preview/openai/set-active-floor", response_class=HTMLResponse)
+        async def openai_set_active_floor_preview() -> HTMLResponse:
+            return HTMLResponse(build_set_active_floor_preview_html())
 
     @app.get("/.well-known/oauth-protected-resource", name="oauth_protected_resource_metadata")
     async def oauth_protected_resource_metadata() -> dict[str, Any]:

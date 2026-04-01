@@ -488,12 +488,13 @@ class TestToolsSmoke:
             None,
         )
 
-        assert set_result["message"] == "Active floor set to @phari"
+        assert "**Active Floor**" in set_result["message"]
+        assert "@phari" in set_result["message"]
         assert set_result["floor_title"] == "Phari Campus"
         assert set_result["floor_logo_url"] == "https://cdn.example/phari.png"
         assert set_result["blocks_count"] == 2
         assert set_result["content"][0]["type"] == "text"
-        assert set_result["content"][0]["text"] == "Active floor set to @phari"
+        assert set_result["content"][0]["text"] == set_result["message"]
         assert "@phari" in set_result["content"][0]["text"]
         assert set_result["_meta"]["openai/outputTemplate"] == SET_ACTIVE_FLOOR_WIDGET_URI
         assert set_result["structuredContent"]["floor_id"] == "phari"
@@ -1300,6 +1301,31 @@ async def test_current_floor_tools_continue_to_work_with_oauth_resolved_user() -
         None,
     )
 
-    assert set_result["message"].startswith("Active floor set to @phari")
+    assert "@phari" in set_result["message"]
     assert query_result["floor_source"] == "session_state"
     assert post_result["posted"] is True
+
+
+@pytest.mark.skipif(not (HAS_DEPS and HAS_FASTAPI), reason="requires fastapi + runtime deps")
+def test_openai_preview_route_renders_set_active_floor_widget() -> None:
+    from fastapi.testclient import TestClient
+
+    from xfloor_mcp.server_http import create_http_app
+    from xfloor_mcp.settings import Settings
+
+    app = create_http_app(
+        Settings(
+            XFLOOR_BASE_URL="https://appfloor.in",
+            XFLOOR_AUTH_MODE="noauth",
+            XFLOOR_HOST_ADAPTER="openai",
+            XFLOOR_DEFAULT_AUTH_TOKEN="xfloor-service-token",
+            XFLOOR_DEFAULT_USER_ID="ctx-user",
+            XFLOOR_DEFAULT_APP_ID="ctx-app",
+        )
+    )
+    client = TestClient(app)
+    response = client.get("/preview/openai/set-active-floor")
+    assert response.status_code == 200
+    assert "<section class=\"card\"" in response.text
+    assert "Royal Meenakshi Mall" in response.text
+    assert "+1 more" in response.text
