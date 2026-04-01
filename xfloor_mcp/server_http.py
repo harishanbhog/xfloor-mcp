@@ -24,7 +24,7 @@ from .auth import (
     resolve_request_identity,
 )
 from .hosts.factory import build_host_adapter
-from .hosts.openai.constants import QUERY_CURRENT_FLOOR_WIDGET_URI, SET_ACTIVE_FLOOR_WIDGET_URI
+from .hosts.openai.constants import QUERY_CURRENT_FLOOR_WIDGET_URI, SET_ACTIVE_FLOOR_WIDGET_URI, WIDGET_MIME_TYPE
 from .hosts.openai.widgets.set_active_floor import build_set_active_floor_preview_html
 from .hosts.openai.widgets.query_current_floor import build_query_current_floor_preview_html
 from .request_context import (
@@ -235,13 +235,13 @@ def create_http_app(settings: Settings) -> FastAPI:
                         "uri": SET_ACTIVE_FLOOR_WIDGET_URI,
                         "name": "xFloor Active Floor",
                         "description": "OpenAI widget template for xFloor set-active-floor responses.",
-                        "mimeType": "text/html",
+                        "mimeType": WIDGET_MIME_TYPE,
                     },
                     {
                         "uri": QUERY_CURRENT_FLOOR_WIDGET_URI,
                         "name": "xFloor Query Result",
                         "description": "OpenAI widget template for xFloor query-current-floor responses.",
-                        "mimeType": "text/html",
+                        "mimeType": WIDGET_MIME_TYPE,
                     },
                 ]
                 result_key = "resourceTemplates" if rpc_method == "resources/templates/list" else "resources"

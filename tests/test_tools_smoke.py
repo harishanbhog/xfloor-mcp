@@ -221,7 +221,7 @@ class TestToolsSmoke:
         assert mcp.resource_kwargs.get("ui://widget/query-current-floor-v1.html") is not None
         widget_resource = mcp.resources[SET_ACTIVE_FLOOR_WIDGET_URI]()
         assert widget_resource["contents"][0]["uri"] == SET_ACTIVE_FLOOR_WIDGET_URI
-        assert widget_resource["contents"][0]["mimeType"] == "text/html"
+        assert widget_resource["contents"][0]["mimeType"].startswith("text/html")
         assert "openai/widgetDescription" in widget_resource["contents"][0]["_meta"]
         assert "openai/widgetCSP" in widget_resource["contents"][0]["_meta"]
         assert "openai/widgetDomain" in widget_resource["contents"][0]["_meta"]
@@ -233,7 +233,7 @@ class TestToolsSmoke:
         assert "csp" in widget_resource["contents"][0]["_meta"]["ui"]
         query_widget_resource = mcp.resources["ui://widget/query-current-floor-v1.html"]()
         assert query_widget_resource["contents"][0]["uri"] == "ui://widget/query-current-floor-v1.html"
-        assert query_widget_resource["contents"][0]["mimeType"] == "text/html"
+        assert query_widget_resource["contents"][0]["mimeType"].startswith("text/html")
         assert "openai/widgetDomain" in query_widget_resource["contents"][0]["_meta"]
         assert "ui" in query_widget_resource["contents"][0]["_meta"]
 

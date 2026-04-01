@@ -9,7 +9,7 @@ from typing import Any
 
 from ..base import HostCapabilities
 from ...settings import Settings
-from .constants import QUERY_CURRENT_FLOOR_WIDGET_URI, SET_ACTIVE_FLOOR_WIDGET_URI
+from .constants import QUERY_CURRENT_FLOOR_WIDGET_URI, SET_ACTIVE_FLOOR_WIDGET_URI, WIDGET_MIME_TYPE
 from .widget_templates import build_floor_summary_widget_html, build_query_floor_answer_widget_html
 
 logger = logging.getLogger(__name__)
@@ -45,9 +45,9 @@ class OpenAIHostAdapter:
         if "description" in supported:
             kwargs["description"] = description
         if "mime_type" in supported:
-            kwargs["mime_type"] = "text/html"
+            kwargs["mime_type"] = WIDGET_MIME_TYPE
         elif "mimeType" in supported:
-            kwargs["mimeType"] = "text/html"
+            kwargs["mimeType"] = WIDGET_MIME_TYPE
         if "_meta" in supported:
             kwargs["_meta"] = meta
         elif "meta" in supported:
@@ -95,7 +95,7 @@ class OpenAIHostAdapter:
             "contents": [
                 {
                     "uri": SET_ACTIVE_FLOOR_WIDGET_URI,
-                    "mimeType": "text/html",
+                    "mimeType": WIDGET_MIME_TYPE,
                     "text": build_floor_summary_widget_html(),
                     "_meta": widget_meta,
                 }
@@ -148,7 +148,7 @@ class OpenAIHostAdapter:
             "contents": [
                 {
                     "uri": QUERY_CURRENT_FLOOR_WIDGET_URI,
-                    "mimeType": "text/html",
+                    "mimeType": WIDGET_MIME_TYPE,
                     "text": build_query_floor_answer_widget_html(),
                     "_meta": query_widget_meta,
                 }
