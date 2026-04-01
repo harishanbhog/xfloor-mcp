@@ -11,7 +11,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from .active_floor_state import clear_active_floor_state, get_active_floor_state, resolve_floor_reference, set_active_floor_state
 from .core.active_floor_response import build_core_set_active_floor_response
-from .hosts.openai.constants import SET_ACTIVE_FLOOR_WIDGET_URI  # backwards-compatible re-export
+from .hosts.openai.constants import QUERY_CURRENT_FLOOR_WIDGET_URI, SET_ACTIVE_FLOOR_WIDGET_URI  # backwards-compatible re-export
 from .request_context import get_active_floor_id, get_auth_mode, get_auth_token, get_user_id, get_xfloor_service_token
 from .settings import Settings
 from .xfloor_client import XFloorClient
@@ -743,6 +743,8 @@ def register_tools(mcp: Any, client: XFloorClient, settings: Settings | None = N
             "'active floor set' when richer details are available."
         ),
         annotations={"readOnlyHint": False, "openWorldHint": False, "destructiveHint": False},
+        _meta={"openai/outputTemplate": SET_ACTIVE_FLOOR_WIDGET_URI},
+        meta={"openai/outputTemplate": SET_ACTIVE_FLOOR_WIDGET_URI},
     )
     async def xfloor_set_active_floor(input: XFloorSetActiveFloorInput, ctx: Any = None) -> dict[str, Any]:
         resolved = resolve_floor_reference(floor_ref=input.floor_ref, floor_id=input.floor_id)
@@ -828,6 +830,8 @@ def register_tools(mcp: Any, client: XFloorClient, settings: Settings | None = N
             "When in doubt, do not call it."
         ),
         annotations={"readOnlyHint": True, "openWorldHint": False, "destructiveHint": False},
+        _meta={"openai/outputTemplate": QUERY_CURRENT_FLOOR_WIDGET_URI},
+        meta={"openai/outputTemplate": QUERY_CURRENT_FLOOR_WIDGET_URI},
     )
     async def xfloor_query_current_floor(input: XFloorQueryCurrentFloorInput, ctx: Any = None) -> dict[str, Any]:
         token = _extract_auth_token(ctx, None)
