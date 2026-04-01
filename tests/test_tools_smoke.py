@@ -1388,9 +1388,14 @@ def test_resources_list_returns_openai_widget_templates_for_discovery(monkeypatc
     response = client.post("/mcp", json={"jsonrpc": "2.0", "id": 10, "method": "resources/list", "params": {}})
     assert response.status_code == 200
     payload = response.json()
-    uris = [item.get("uri") for item in payload["result"]["resources"]]
+    resources = payload["result"]["resources"]
+    uris = [item.get("uri") for item in resources]
     assert "ui://widget/set-active-floor-v1.html" in uris
     assert "ui://widget/query-current-floor-v1.html" in uris
+    first = resources[0]
+    assert first["_meta"]["ui"]["domain"] == "https://appfloor.in"
+    assert first["_meta"]["ui"]["csp"]["connectDomains"] == ["https://appfloor.in"]
+    assert first["_meta"]["openai/widgetPrefersBorder"] is True
 
 
 @pytest.mark.skipif(not HAS_DEPS, reason="requires pydantic/httpx")

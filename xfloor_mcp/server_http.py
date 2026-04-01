@@ -230,18 +230,30 @@ def create_http_app(settings: Settings) -> FastAPI:
         set_oauth_subject(identity.verified_identity.subject if identity.verified_identity else None)
         try:
             if rpc_method in {"resources/list", "resources/templates/list"} and getattr(host_adapter, "name", "") == "openai":
+                common_meta = {
+                    "ui": {
+                        "csp": {
+                            "connectDomains": settings.xfloor_widget_connect_domains,
+                            "resourceDomains": settings.xfloor_widget_resource_domains,
+                        },
+                        "domain": settings.xfloor_widget_domain,
+                    },
+                    "openai/widgetPrefersBorder": True,
+                }
                 resource_items = [
                     {
                         "uri": SET_ACTIVE_FLOOR_WIDGET_URI,
                         "name": "xFloor Active Floor",
                         "description": "OpenAI widget template for xFloor set-active-floor responses.",
                         "mimeType": WIDGET_MIME_TYPE,
+                        "_meta": common_meta,
                     },
                     {
                         "uri": QUERY_CURRENT_FLOOR_WIDGET_URI,
                         "name": "xFloor Query Result",
                         "description": "OpenAI widget template for xFloor query-current-floor responses.",
                         "mimeType": WIDGET_MIME_TYPE,
+                        "_meta": common_meta,
                     },
                 ]
                 result_key = "resourceTemplates" if rpc_method == "resources/templates/list" else "resources"
