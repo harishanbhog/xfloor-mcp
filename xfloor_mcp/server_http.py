@@ -258,6 +258,10 @@ def create_http_app(settings: Settings) -> FastAPI:
         async def openai_query_current_floor_preview() -> HTMLResponse:
             return HTMLResponse(build_query_current_floor_preview_html())
 
+        @app.get("/preview/openai/query_current_floor", response_class=HTMLResponse)
+        async def openai_query_current_floor_preview_alias() -> HTMLResponse:
+            return HTMLResponse(build_query_current_floor_preview_html())
+
     @app.get("/.well-known/oauth-protected-resource", name="oauth_protected_resource_metadata")
     async def oauth_protected_resource_metadata() -> dict[str, Any]:
         return protected_resource_metadata(settings)
