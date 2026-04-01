@@ -273,6 +273,8 @@ def create_http_app(settings: Settings) -> FastAPI:
                             "name": item.get("name"),
                             "mimeType": item.get("mimeType"),
                             "meta_keys": sorted((item.get("_meta") or {}).keys()),
+                            "ui_domain": ((item.get("_meta") or {}).get("ui") or {}).get("domain"),
+                            "ui_csp": ((item.get("_meta") or {}).get("ui") or {}).get("csp"),
                         }
                         for item in resource_items
                     ],
@@ -283,7 +285,7 @@ def create_http_app(settings: Settings) -> FastAPI:
                     meta = item.get("_meta") or {}
                     ui = meta.get("ui") or {}
                     logger.info(
-                        "resources/list item uri=%s name=%s mime=%s has_meta=%s meta_keys=%s has_ui=%s has_ui_domain=%s has_ui_csp=%s",
+                        "resources/list item uri=%s name=%s mime=%s has_meta=%s meta_keys=%s has_ui=%s has_ui_domain=%s has_ui_csp=%s ui_domain=%s ui_csp=%s",
                         item.get("uri"),
                         item.get("name"),
                         item.get("mimeType"),
@@ -292,6 +294,8 @@ def create_http_app(settings: Settings) -> FastAPI:
                         bool(ui),
                         "domain" in ui and bool(ui.get("domain")),
                         "csp" in ui and bool(ui.get("csp")),
+                        ui.get("domain"),
+                        ui.get("csp"),
                     )
                 return response
             response = await call_next(request)
