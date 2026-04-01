@@ -216,7 +216,7 @@ class TestToolsSmoke:
             "xfloor_post_event_to_current_floor",
         }
         assert SET_ACTIVE_FLOOR_WIDGET_URI in mcp.resources
-        assert "ui://widget/query-results-v1.html" not in mcp.resources
+        assert "ui://widget/query-current-floor-v1.html" in mcp.resources
         widget_resource = mcp.resources[SET_ACTIVE_FLOOR_WIDGET_URI]()
         assert widget_resource["contents"][0]["uri"] == SET_ACTIVE_FLOOR_WIDGET_URI
         assert widget_resource["contents"][0]["mimeType"] == "text/html"
@@ -226,6 +226,9 @@ class TestToolsSmoke:
         assert "resourceDomains" in widget_resource["contents"][0]["_meta"]["openai/widgetCSP"]
         assert "ui" in widget_resource["contents"][0]["_meta"]
         assert "csp" in widget_resource["contents"][0]["_meta"]["ui"]
+        query_widget_resource = mcp.resources["ui://widget/query-current-floor-v1.html"]()
+        assert query_widget_resource["contents"][0]["uri"] == "ui://widget/query-current-floor-v1.html"
+        assert query_widget_resource["contents"][0]["mimeType"] == "text/html"
 
         assert get_type_hints(mcp.registry["xfloor_get_floor_info"])["input"] is XFloorGetFloorInfoInput
         assert get_type_hints(mcp.registry["xfloor_set_active_floor"])["input"] is XFloorSetActiveFloorInput
@@ -501,8 +504,10 @@ class TestToolsSmoke:
         assert len(set_result["structuredContent"]["blocks"]) == 2
         assert query_result["floor_id"] == "phari"
         assert query_result["best_match"]["floorUrl"] == "phari.xfloor.ai"
-        assert "Related floors:" in query_result["answer"]
+        assert "**Related floors**" in query_result["answer"]
+        assert "https://phari.xfloor.ai" in query_result["answer"]
         assert query_result["related_floors_text"] == ["@Phari"]
+        assert query_result["_meta"]["openai/outputTemplate"] == "ui://widget/query-current-floor-v1.html"
         assert query_result["normalization_meta"]["malformedItemTextCount"] == 0
         assert post_result["posted"] is True
 

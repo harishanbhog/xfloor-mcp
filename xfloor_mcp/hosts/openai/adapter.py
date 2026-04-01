@@ -8,8 +8,8 @@ from typing import Any
 
 from ..base import HostCapabilities
 from ...settings import Settings
-from .constants import SET_ACTIVE_FLOOR_WIDGET_URI
-from .widget_templates import build_floor_summary_widget_html
+from .constants import QUERY_CURRENT_FLOOR_WIDGET_URI, SET_ACTIVE_FLOOR_WIDGET_URI
+from .widget_templates import build_floor_summary_widget_html, build_query_floor_answer_widget_html
 
 logger = logging.getLogger(__name__)
 
@@ -76,6 +76,32 @@ class OpenAIHostAdapter:
         )
         return payload
 
+    def _build_query_widget_resource(self) -> dict[str, Any]:
+        connect_domains = list(
+            dict.fromkeys(
+                (self.settings.xfloor_widget_connect_domains if self.settings else [])
+                + ([self.settings.xfloor_base_url] if self.settings else [])
+            )
+        )
+        resource_domains = self.settings.xfloor_widget_resource_domains if self.settings else ["https://persistent.oaistatic.com"]
+        return {
+            "contents": [
+                {
+                    "uri": QUERY_CURRENT_FLOOR_WIDGET_URI,
+                    "mimeType": "text/html",
+                    "text": build_query_floor_answer_widget_html(),
+                    "_meta": {
+                        "openai/widgetDescription": "Shows floor query answer with related floor links.",
+                        "openai/widgetPrefersBorder": True,
+                        "openai/widgetCSP": {
+                            "connectDomains": connect_domains,
+                            "resourceDomains": resource_domains,
+                        },
+                    },
+                }
+            ]
+        }
+
     def register_resources(self, mcp: Any) -> None:
         logger.info("Registering openai widget resource uri=%s", SET_ACTIVE_FLOOR_WIDGET_URI)
 
@@ -93,9 +119,20 @@ class OpenAIHostAdapter:
             )
             return resource_payload
 
+        @mcp.resource(QUERY_CURRENT_FLOOR_WIDGET_URI)
+        def openai_query_current_floor_widget() -> dict[str, Any]:
+            return self._build_query_widget_resource()
+
     def decorate_set_active_floor_response(self, core_response: dict[str, Any]) -> dict[str, Any]:
         decorated = dict(core_response)
         decorated["_meta"] = {
             "openai/outputTemplate": SET_ACTIVE_FLOOR_WIDGET_URI,
+        }
+        return decorated
+
+    def decorate_query_current_floor_response(self, response: dict[str, Any]) -> dict[str, Any]:
+        decorated = dict(response)
+        decorated["_meta"] = {
+            "openai/outputTemplate": QUERY_CURRENT_FLOOR_WIDGET_URI,
         }
         return decorated

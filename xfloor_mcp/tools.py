@@ -446,6 +446,23 @@ def _build_set_active_floor_markdown_card(state: dict[str, Any]) -> str:
     return "\n\n".join(sections).strip()
 
 
+def _build_query_floor_markdown_answer(answer: str, relevant_floors: list[dict[str, Any]]) -> str:
+    lines = [answer.strip() or "Here’s what I found."]
+    links: list[str] = []
+    for floor in relevant_floors[:4]:
+        floor_id = str(floor.get("floorUid") or "").strip()
+        label = str(floor.get("floorName") or floor_id).strip()
+        if not floor_id:
+            continue
+        label_value = f"@{label.lstrip('@')}" if label else f"@{floor_id}"
+        links.append(f"- [{label_value}](https://{floor_id}.xfloor.ai)")
+    if links:
+        lines.append("")
+        lines.append("**Related floors**")
+        lines.extend(links)
+    return "\n".join(lines)
+
+
 def _tokenize(value: str) -> set[str]:
     return {token for token in re.findall(r"[a-z0-9]+", value.lower()) if len(token) > 2}
 
@@ -855,7 +872,7 @@ def register_tools(mcp: Any, client: XFloorClient, settings: Settings | None = N
             floor["floor_id"],
             structured_content["resultCount"],
         )
-        answer_text = structured_content.get("answer") or "Here’s what I found."
+        base_answer_text = structured_content.get("answer") or "Here’s what I found."
         related_floor_handles: list[str] = []
         for floor_item in structured_content["relevantFloors"][:5]:
             floor_name = (floor_item.get("floorName") or "").strip()
@@ -863,23 +880,34 @@ def register_tools(mcp: Any, client: XFloorClient, settings: Settings | None = N
             chosen = floor_name or floor_uid
             if chosen:
                 related_floor_handles.append(f"@{chosen.lstrip('@')}")
-        if related_floor_handles:
-            answer_text = (
-                f"{answer_text}\n\nRelated floors: {', '.join(related_floor_handles)}\n"
-                f"Try: use {related_floor_handles[0]}"
-            )
-        return {
+        markdown_answer = _build_query_floor_markdown_answer(base_answer_text, structured_content["relevantFloors"])
+        response = {
             "floor_id": floor["floor_id"],
             "floor_ref": floor["floor_ref"],
             "floor_source": floor["source"],
             "query": input.query,
-            "answer": answer_text,
+            "answer": markdown_answer,
             "best_match": structured_content["bestMatch"],
             "relevant_floors": structured_content["relevantFloors"],
             "result_count": structured_content["resultCount"],
             "related_floors_text": related_floor_handles,
             "normalization_meta": normalization_meta,
+            "content": [{"type": "text", "text": markdown_answer}],
+            "structuredContent": {
+                "answer": base_answer_text,
+                "relatedFloors": [
+                    {
+                        "floor_id": str(item.get("floorUid") or "").strip(),
+                        "floorName": str(item.get("floorName") or "").strip(),
+                        "label": str(item.get("floorName") or item.get("floorUid") or "").strip(),
+                    }
+                    for item in structured_content["relevantFloors"]
+                ],
+            },
         }
+        if host_adapter and hasattr(host_adapter, "decorate_query_current_floor_response"):
+            response = host_adapter.decorate_query_current_floor_response(response)
+        return response
 
     @mcp.tool(
         name="xfloor_post_event_to_current_floor",
