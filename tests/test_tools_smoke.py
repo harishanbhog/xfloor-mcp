@@ -247,8 +247,14 @@ class TestToolsSmoke:
         assert get_type_hints(mcp.registry["xfloor_clear_active_floor"])["input"] is XFloorClearActiveFloorInput
         assert get_type_hints(mcp.registry["xfloor_query_current_floor"])["input"] is XFloorQueryCurrentFloorInput
         assert get_type_hints(mcp.registry["xfloor_post_event_to_current_floor"])["input"] is XFloorPostEventToCurrentFloorInput
-        assert mcp.tool_kwargs["xfloor_set_active_floor"]["_meta"]["openai/outputTemplate"] == SET_ACTIVE_FLOOR_WIDGET_URI
-        assert mcp.tool_kwargs["xfloor_query_current_floor"]["_meta"]["openai/outputTemplate"] == "ui://widget/query-current-floor-v1.html"
+        assert (
+            mcp.tool_kwargs["xfloor_set_active_floor"]["annotations"]["openai/outputTemplate"]
+            == SET_ACTIVE_FLOOR_WIDGET_URI
+        )
+        assert (
+            mcp.tool_kwargs["xfloor_query_current_floor"]["annotations"]["openai/outputTemplate"]
+            == "ui://widget/query-current-floor-v1.html"
+        )
         assert "xfloor_query_memory" not in mcp.registry
         assert "xfloor_create_event" not in mcp.registry
         assert "xfloor_recent_events" not in mcp.registry
@@ -263,6 +269,7 @@ class TestToolsSmoke:
             "readOnlyHint": False,
             "openWorldHint": False,
             "destructiveHint": False,
+            "openai/outputTemplate": SET_ACTIVE_FLOOR_WIDGET_URI,
         }
         assert mcp.tool_kwargs["xfloor_clear_active_floor"]["annotations"] == {
             "readOnlyHint": False,
@@ -273,6 +280,7 @@ class TestToolsSmoke:
             "readOnlyHint": True,
             "openWorldHint": False,
             "destructiveHint": False,
+            "openai/outputTemplate": "ui://widget/query-current-floor-v1.html",
         }
         assert mcp.tool_kwargs["xfloor_post_event_to_current_floor"]["annotations"] == {
             "readOnlyHint": False,

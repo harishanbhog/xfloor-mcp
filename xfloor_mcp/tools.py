@@ -742,9 +742,12 @@ def register_tools(mcp: Any, client: XFloorClient, settings: Settings | None = N
             "floor title, floor description, logo URL (if present), and top blocks. Do not reduce the response to only "
             "'active floor set' when richer details are available."
         ),
-        annotations={"readOnlyHint": False, "openWorldHint": False, "destructiveHint": False},
-        _meta={"openai/outputTemplate": SET_ACTIVE_FLOOR_WIDGET_URI},
-        meta={"openai/outputTemplate": SET_ACTIVE_FLOOR_WIDGET_URI},
+        annotations={
+            "readOnlyHint": False,
+            "openWorldHint": False,
+            "destructiveHint": False,
+            "openai/outputTemplate": SET_ACTIVE_FLOOR_WIDGET_URI,
+        },
     )
     async def xfloor_set_active_floor(input: XFloorSetActiveFloorInput, ctx: Any = None) -> dict[str, Any]:
         resolved = resolve_floor_reference(floor_ref=input.floor_ref, floor_id=input.floor_id)
@@ -829,9 +832,12 @@ def register_tools(mcp: Any, client: XFloorClient, settings: Settings | None = N
             "If no active Floor is set, do not call this tool. "
             "When in doubt, do not call it."
         ),
-        annotations={"readOnlyHint": True, "openWorldHint": False, "destructiveHint": False},
-        _meta={"openai/outputTemplate": QUERY_CURRENT_FLOOR_WIDGET_URI},
-        meta={"openai/outputTemplate": QUERY_CURRENT_FLOOR_WIDGET_URI},
+        annotations={
+            "readOnlyHint": True,
+            "openWorldHint": False,
+            "destructiveHint": False,
+            "openai/outputTemplate": QUERY_CURRENT_FLOOR_WIDGET_URI,
+        },
     )
     async def xfloor_query_current_floor(input: XFloorQueryCurrentFloorInput, ctx: Any = None) -> dict[str, Any]:
         token = _extract_auth_token(ctx, None)
