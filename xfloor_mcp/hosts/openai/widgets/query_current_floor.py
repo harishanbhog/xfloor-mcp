@@ -79,8 +79,8 @@ def _build_query_current_floor_document(*, preview_data: dict | None = None) -> 
           a.className = 'link';
           a.target = '_blank';
           a.rel = 'noopener noreferrer';
-          a.href = `https://${floorId}.xfloor.ai`;
-          a.textContent = label.startsWith('@') ? label : `@${label}`;
+          a.href = 'https://' + floorId + '.xfloor.ai';
+          a.textContent = label.startsWith('@') ? label : '@' + label;
           links.appendChild(a);
         });
         if (!links.children.length) {

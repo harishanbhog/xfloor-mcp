@@ -64,9 +64,9 @@ def _build_widget_document(*, preview_data: dict[str, Any] | None = None) -> str
 
       function floorUrlFrom(data) {{
         const floorId = normalizeText(data.floor_id);
-        if (floorId) return `https://${{floorId}}.xfloor.ai`;
+        if (floorId) return "https://" + floorId + ".xfloor.ai";
         const floorRef = normalizeText(data.floor_ref).replace(/^@/, "");
-        return floorRef ? `https://${{floorRef}}.xfloor.ai` : "";
+        return floorRef ? "https://" + floorRef + ".xfloor.ai" : "";
       }}
 
       function getStructuredContent() {{
@@ -83,7 +83,7 @@ def _build_widget_document(*, preview_data: dict[str, Any] | None = None) -> str
       function renderSetActiveFloorWidget(data) {{
         const root = document.getElementById("widget-root");
         const floorRefRaw = normalizeText(data.floor_ref).replace(/^@/, "");
-        const floorRef = floorRefRaw ? `@${{floorRefRaw}}` : "";
+        const floorRef = floorRefRaw ? "@" + floorRefRaw : "";
         const title = normalizeText(data.floor_title) || floorRef || "xFloor";
         const description = normalizeText(data.floor_description);
         const logo = normalizeText(data.floor_logo_url);
@@ -93,28 +93,35 @@ def _build_widget_document(*, preview_data: dict[str, Any] | None = None) -> str
         const chips = [];
         for (const block of blocks.slice(0, 6)) {{
           const name = normalizeText(block && (block.name || block.block_id)) || "Unnamed";
-          chips.push(`<li class=\"chip\">${{escapeHtml(name)}}</li>`);
+          chips.push('<li class="chip">' + escapeHtml(name) + "</li>");
         }}
         if (blocks.length > 6) {{
-          chips.push(`<li class=\"chip more\">+${{blocks.length - 6}} more</li>`);
+          chips.push('<li class="chip more">+' + (blocks.length - 6) + " more</li>");
         }}
 
-        root.innerHTML = `
-          <section class=\"card\" aria-label=\"Active floor summary\">
-            <div class=\"head\">
-              ${{logo ? `<img class=\"logo\" src=\"${{escapeAttr(logo)}}\" alt=\"${{escapeAttr(title)}} logo\" />` : ""}}
-              <div class=\"title-wrap\">
-                <h1 class=\"title\">${{escapeHtml(title)}}</h1>
-                ${{floorRef ? `<p class=\"ref\">${{escapeHtml(floorRef)}}</p>` : ""}}
-              </div>
-            </div>
-            ${{description ? `<p class=\"description\">${{escapeHtml(description)}}</p>` : ""}}
-            ${{chips.length ? `<ul class=\"chips\" aria-label=\"Floor blocks\">${{chips.join("")}}</ul>` : ""}}
-            <div class=\"cta-row\">
-              ${{floorUrl ? `<a class=\"cta\" href=\"${{escapeAttr(floorUrl)}}\" target=\"_blank\" rel=\"noopener noreferrer\">Open floor</a>` : `<span class=\"empty\">No floor URL available.</span>`}}
-            </div>
-          </section>
-        `;
+        const logoHtml = logo
+          ? '<img class="logo" src="' + escapeAttr(logo) + '" alt="' + escapeAttr(title) + ' logo" />'
+          : "";
+        const refHtml = floorRef ? '<p class="ref">' + escapeHtml(floorRef) + "</p>" : "";
+        const descHtml = description ? '<p class="description">' + escapeHtml(description) + "</p>" : "";
+        const chipsHtml = chips.length ? '<ul class="chips" aria-label="Floor blocks">' + chips.join("") + "</ul>" : "";
+        const ctaHtml = floorUrl
+          ? '<a class="cta" href="' + escapeAttr(floorUrl) + '" target="_blank" rel="noopener noreferrer">Open floor</a>'
+          : '<span class="empty">No floor URL available.</span>';
+
+        root.innerHTML =
+          '<section class="card" aria-label="Active floor summary">' +
+            '<div class="head">' +
+              logoHtml +
+              '<div class="title-wrap">' +
+                '<h1 class="title">' + escapeHtml(title) + "</h1>" +
+                refHtml +
+              "</div>" +
+            "</div>" +
+            descHtml +
+            chipsHtml +
+            '<div class="cta-row">' + ctaHtml + "</div>" +
+          "</section>";
       }}
 
       function escapeHtml(input) {{
