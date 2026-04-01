@@ -305,10 +305,15 @@ def create_http_app(settings: Settings) -> FastAPI:
                     if body is None and hasattr(response, "body_iterator"):
                         chunks = [chunk async for chunk in response.body_iterator]
                         body = b"".join(chunks)
+                        passthrough_headers = {
+                            key: value
+                            for key, value in response.headers.items()
+                            if key.lower() not in {"content-length", "transfer-encoding"}
+                        }
                         response = Response(
                             content=body,
                             status_code=response.status_code,
-                            headers=dict(response.headers),
+                            headers=passthrough_headers,
                             media_type=response.media_type,
                         )
                     if body:
@@ -335,10 +340,15 @@ def create_http_app(settings: Settings) -> FastAPI:
                             None,
                         )
                         logger.info("tools/list descriptor xfloor_set_active_floor=%s", set_active_descriptor)
+                        patched_headers = {
+                            key: value
+                            for key, value in response.headers.items()
+                            if key.lower() not in {"content-length", "transfer-encoding"}
+                        }
                         response = JSONResponse(
                             status_code=response.status_code,
                             content=payload,
-                            headers=dict(response.headers),
+                            headers=patched_headers,
                         )
                     else:
                         logger.warning("tools/list response body unavailable for descriptor logging")
