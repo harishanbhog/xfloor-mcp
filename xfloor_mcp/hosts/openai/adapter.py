@@ -118,7 +118,7 @@ class OpenAIHostAdapter:
         if self.settings and self.settings.xfloor_widget_domain:
             query_widget_meta["openai/widgetDomain"] = self.settings.xfloor_widget_domain
 
-        return {
+        payload = {
             "contents": [
                 {
                     "uri": QUERY_CURRENT_FLOOR_WIDGET_URI,
@@ -128,6 +128,15 @@ class OpenAIHostAdapter:
                 }
             ]
         }
+        logger.info(
+            "openai query widget payload built uri=%s mime=%s openai_widget_csp=%s ui_csp=%s ui_domain=%s",
+            QUERY_CURRENT_FLOOR_WIDGET_URI,
+            payload["contents"][0]["mimeType"],
+            payload["contents"][0]["_meta"].get("openai/widgetCSP"),
+            payload["contents"][0]["_meta"].get("ui", {}).get("csp"),
+            payload["contents"][0]["_meta"].get("ui", {}).get("domain"),
+        )
+        return payload
 
     def register_resources(self, mcp: Any) -> None:
         logger.info(
@@ -160,7 +169,17 @@ class OpenAIHostAdapter:
             return resource_payload
 
         def openai_query_current_floor_widget() -> dict[str, Any]:
-            return self._build_query_widget_resource()
+            resource_payload = self._build_query_widget_resource()
+            csp_meta = resource_payload["contents"][0]["_meta"]["openai/widgetCSP"]
+            ui_meta = resource_payload["contents"][0]["_meta"].get("ui", {})
+            logger.info(
+                "openai query widget resource served uri=%s csp_connect=%s csp_resource=%s ui_domain=%s",
+                QUERY_CURRENT_FLOOR_WIDGET_URI,
+                csp_meta.get("connectDomains") or csp_meta.get("connect_domains"),
+                csp_meta.get("resourceDomains") or csp_meta.get("resource_domains"),
+                ui_meta.get("domain"),
+            )
+            return resource_payload
 
         for candidate in set_active_kwargs:
             try:
