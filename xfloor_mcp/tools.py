@@ -614,7 +614,12 @@ def normalize_query_response(
 def register_tools(mcp: Any, client: XFloorClient, settings: Settings | None = None, host_adapter: Any | None = None) -> None:
     """Register MCP tools on the provided FastMCP instance."""
     enable_v1_expanded_tool_surface = False
-    if host_adapter and getattr(host_adapter, "capabilities", None) and host_adapter.capabilities.supports_widget_resources:
+    if host_adapter and hasattr(host_adapter, "register_resources"):
+        logger.info(
+            "Registering host resources host=%s supports_widget_resources=%s",
+            getattr(host_adapter, "name", "unknown"),
+            bool(getattr(getattr(host_adapter, "capabilities", None), "supports_widget_resources", False)),
+        )
         host_adapter.register_resources(mcp)
 
     if enable_v1_expanded_tool_surface:
