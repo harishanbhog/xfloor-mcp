@@ -1353,3 +1353,38 @@ def test_openai_preview_route_renders_set_active_floor_widget() -> None:
     assert "@showoff" in query_preview.text
     query_preview_alias = client.get("/preview/openai/query_current_floor")
     assert query_preview_alias.status_code == 200
+
+
+@pytest.mark.skipif(not (HAS_DEPS and HAS_FASTAPI), reason="requires fastapi + runtime deps")
+def test_resources_list_returns_openai_widget_templates_for_discovery(monkeypatch: pytest.MonkeyPatch) -> None:
+    from fastapi import FastAPI
+    from fastapi.responses import JSONResponse
+    from fastapi.testclient import TestClient
+
+    from xfloor_mcp.server_http import create_http_app
+    from xfloor_mcp.settings import Settings
+
+    async def passthrough(_: Any) -> JSONResponse:
+        return JSONResponse({"ok": True})
+
+    debug_app = FastAPI()
+    debug_app.add_api_route("/{path:path}", passthrough, methods=["GET", "POST"])
+    monkeypatch.setattr("xfloor_mcp.server_http._build_mcp_app", lambda mcp: debug_app)
+
+    app = create_http_app(
+        Settings(
+            XFLOOR_BASE_URL="https://appfloor.in",
+            XFLOOR_AUTH_MODE="noauth",
+            XFLOOR_HOST_ADAPTER="openai",
+            XFLOOR_DEFAULT_AUTH_TOKEN="xfloor-service-token",
+            XFLOOR_DEFAULT_USER_ID="ctx-user",
+            XFLOOR_DEFAULT_APP_ID="ctx-app",
+        )
+    )
+    client = TestClient(app)
+    response = client.post("/mcp", json={"jsonrpc": "2.0", "id": 10, "method": "resources/list", "params": {}})
+    assert response.status_code == 200
+    payload = response.json()
+    uris = [item.get("uri") for item in payload["result"]["resources"]]
+    assert "ui://widget/set-active-floor-v1.html" in uris
+    assert "ui://widget/query-current-floor-v1.html" in uris

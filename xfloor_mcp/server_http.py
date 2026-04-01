@@ -24,6 +24,7 @@ from .auth import (
     resolve_request_identity,
 )
 from .hosts.factory import build_host_adapter
+from .hosts.openai.constants import QUERY_CURRENT_FLOOR_WIDGET_URI, SET_ACTIVE_FLOOR_WIDGET_URI
 from .hosts.openai.widgets.set_active_floor import build_set_active_floor_preview_html
 from .hosts.openai.widgets.query_current_floor import build_query_current_floor_preview_html
 from .request_context import (
@@ -111,6 +112,8 @@ def create_http_app(settings: Settings) -> FastAPI:
         started = time.perf_counter()
         path = request.url.path
         method = request.method.upper()
+        rpc_method: str | None = None
+        rpc_id: Any = None
         logger.info("MCP middleware request start request_id=%s method=%s path=%s", request_id, method, path)
         is_mcp_path = path == "/mcp" or path.startswith("/mcp/")
         if is_mcp_path:
@@ -135,6 +138,7 @@ def create_http_app(settings: Settings) -> FastAPI:
                 except Exception:  # noqa: BLE001
                     payload = {}
                 rpc_method = payload.get("method") if isinstance(payload, dict) else None
+                rpc_id = payload.get("id") if isinstance(payload, dict) else None
                 params = payload.get("params") if isinstance(payload, dict) and isinstance(payload.get("params"), dict) else {}
                 if rpc_method:
                     logger.info("MCP jsonrpc method request_id=%s method=%s", request_id, rpc_method)
@@ -220,6 +224,35 @@ def create_http_app(settings: Settings) -> FastAPI:
         set_oauth_issuer(identity.verified_identity.issuer if identity.verified_identity else None)
         set_oauth_subject(identity.verified_identity.subject if identity.verified_identity else None)
         try:
+            if rpc_method in {"resources/list", "resources/templates/list"} and getattr(host_adapter, "name", "") == "openai":
+                resource_items = [
+                    {
+                        "uri": SET_ACTIVE_FLOOR_WIDGET_URI,
+                        "name": "xFloor Active Floor",
+                        "description": "OpenAI widget template for xFloor set-active-floor responses.",
+                        "mimeType": "text/html",
+                    },
+                    {
+                        "uri": QUERY_CURRENT_FLOOR_WIDGET_URI,
+                        "name": "xFloor Query Result",
+                        "description": "OpenAI widget template for xFloor query-current-floor responses.",
+                        "mimeType": "text/html",
+                    },
+                ]
+                result_key = "resourceTemplates" if rpc_method == "resources/templates/list" else "resources"
+                response = JSONResponse(
+                    status_code=200,
+                    content={"jsonrpc": "2.0", "id": rpc_id, "result": {result_key: resource_items}},
+                )
+                duration_ms = (time.perf_counter() - started) * 1000
+                logger.info(
+                    "MCP middleware synthetic %s response request_id=%s resources=%s duration_ms=%.1f",
+                    rpc_method,
+                    request_id,
+                    [item["uri"] for item in resource_items],
+                    duration_ms,
+                )
+                return response
             response = await call_next(request)
             duration_ms = (time.perf_counter() - started) * 1000
             logger.info(
