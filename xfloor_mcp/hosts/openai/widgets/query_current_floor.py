@@ -2,9 +2,34 @@
 
 from __future__ import annotations
 
+import json
 
-def build_query_current_floor_widget_html() -> str:
-    return """<!doctype html>
+
+_SAMPLE_QUERY_DATA = {
+    "answer": (
+        "Trends\n\n"
+        "Up to 70% off + extra 10% off on fresh merchandise\n"
+        "Covers men’s, women’s, and kids’ wear\n"
+        "The listing is dated December 10–14, 2024, so it may be an older limited-time offer\n\n"
+        "Monte Carlo\n\n"
+        "Up to 50% off\n"
+        "Specifically mentions items like sweaters and tracksuits, so this is the clearest winter-wear match\n\n"
+        "Showoff\n\n"
+        "An Independence Day offer is listed\n"
+        "But the available content does not say it is winter-specific\n\n"
+        "Best winter-clothing lead from the current floor content: Monte Carlo."
+    ),
+    "relatedFloors": [
+        {"floor_id": "showoff", "label": "@showoff"},
+        {"floor_id": "montecarlo", "label": "@montecarlo"},
+        {"floor_id": "trends", "label": "@Trends"},
+    ],
+}
+
+
+def _build_query_current_floor_document(*, preview_data: dict | None = None) -> str:
+    preview_json = json.dumps(preview_data or {})
+    return f"""<!doctype html>
 <html lang=\"en\">
   <head>
     <meta charset=\"utf-8\" />
@@ -32,8 +57,11 @@ def build_query_current_floor_widget_html() -> str:
       </div>
     </section>
     <script>
+      const PREVIEW_DATA = {preview_json};
       const api = window.openai || {};
-      const sc = window.structuredContent || window.__structuredContent || (api.toolOutput && api.toolOutput.structuredContent) || {};
+      const sc = Object.keys(PREVIEW_DATA).length
+        ? PREVIEW_DATA
+        : (window.structuredContent || window.__structuredContent || (api.toolOutput && api.toolOutput.structuredContent) || {});
       const answer = (sc.answer || '').trim() || 'Here’s what I found.';
       const related = Array.isArray(sc.relatedFloors) ? sc.relatedFloors : [];
 
@@ -62,3 +90,11 @@ def build_query_current_floor_widget_html() -> str:
     </script>
   </body>
 </html>"""
+
+
+def build_query_current_floor_widget_html() -> str:
+    return _build_query_current_floor_document()
+
+
+def build_query_current_floor_preview_html() -> str:
+    return _build_query_current_floor_document(preview_data=_SAMPLE_QUERY_DATA)

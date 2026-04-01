@@ -25,6 +25,7 @@ from .auth import (
 )
 from .hosts.factory import build_host_adapter
 from .hosts.openai.widgets.set_active_floor import build_set_active_floor_preview_html
+from .hosts.openai.widgets.query_current_floor import build_query_current_floor_preview_html
 from .request_context import (
     set_auth_mode,
     set_active_floor_id,
@@ -252,6 +253,10 @@ def create_http_app(settings: Settings) -> FastAPI:
         @app.get("/preview/openai/set-active-floor", response_class=HTMLResponse)
         async def openai_set_active_floor_preview() -> HTMLResponse:
             return HTMLResponse(build_set_active_floor_preview_html())
+
+        @app.get("/preview/openai/query-current-floor", response_class=HTMLResponse)
+        async def openai_query_current_floor_preview() -> HTMLResponse:
+            return HTMLResponse(build_query_current_floor_preview_html())
 
     @app.get("/.well-known/oauth-protected-resource", name="oauth_protected_resource_metadata")
     async def oauth_protected_resource_metadata() -> dict[str, Any]:

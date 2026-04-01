@@ -1334,3 +1334,8 @@ def test_openai_preview_route_renders_set_active_floor_widget() -> None:
     assert "<section class=\"card\"" in response.text
     assert "Royal Meenakshi Mall" in response.text
     assert "+1 more" in response.text
+
+    query_preview = client.get("/preview/openai/query-current-floor")
+    assert query_preview.status_code == 200
+    assert "Best winter-clothing lead from the current floor content: Monte Carlo." in query_preview.text
+    assert "@showoff" in query_preview.text
