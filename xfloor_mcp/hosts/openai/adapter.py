@@ -130,7 +130,11 @@ class OpenAIHostAdapter:
         }
 
     def register_resources(self, mcp: Any) -> None:
-        logger.info("Registering openai widget resource uri=%s", SET_ACTIVE_FLOOR_WIDGET_URI)
+        logger.info(
+            "Registering openai widget resources set_active_uri=%s query_uri=%s",
+            SET_ACTIVE_FLOOR_WIDGET_URI,
+            QUERY_CURRENT_FLOOR_WIDGET_URI,
+        )
         set_active_kwargs = (
             {"name": "xFloor Active Floor", "description": "OpenAI widget template for xFloor set-active-floor responses.", "mime_type": "text/html"},
             {"name": "xFloor Active Floor", "description": "OpenAI widget template for xFloor set-active-floor responses.", "mimeType": "text/html"},

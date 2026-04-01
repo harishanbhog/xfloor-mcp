@@ -93,6 +93,11 @@ def create_http_app(settings: Settings) -> FastAPI:
     )
     host_adapter = build_host_adapter(settings)
     register_tools(mcp, client, settings=settings, host_adapter=host_adapter)
+    if getattr(host_adapter, "name", "") == "openai":
+        logger.info(
+            "OpenAI synthetic template discovery enabled resources=%s",
+            [SET_ACTIVE_FLOOR_WIDGET_URI, QUERY_CURRENT_FLOOR_WIDGET_URI],
+        )
 
     app = FastAPI(title=settings.app_name, lifespan=_lifespan)
     app.state.mcp = mcp
