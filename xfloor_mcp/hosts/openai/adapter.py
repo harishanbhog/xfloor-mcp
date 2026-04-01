@@ -188,6 +188,12 @@ class OpenAIHostAdapter:
                 "domain": self.settings.xfloor_widget_domain if self.settings else None,
             }
         }
+        logger.info(
+            "openai query widget registration meta uri=%s ui_csp=%s ui_domain=%s",
+            QUERY_CURRENT_FLOOR_WIDGET_URI,
+            (query_registration_meta.get("ui") or {}).get("csp"),
+            (query_registration_meta.get("ui") or {}).get("domain"),
+        )
         set_active_kwargs = self._build_registration_kwargs(
             mcp,
             name="xfloor-set-active-floor-v1",
