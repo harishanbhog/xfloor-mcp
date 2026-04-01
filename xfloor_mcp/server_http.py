@@ -12,7 +12,7 @@ from typing import Any, AsyncIterator
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, Response
 from mcp.server.fastmcp import FastMCP
 
 from .auth import (
@@ -299,6 +299,51 @@ def create_http_app(settings: Settings) -> FastAPI:
                     )
                 return response
             response = await call_next(request)
+            if rpc_method == "tools/list":
+                try:
+                    body = getattr(response, "body", None)
+                    if body is None and hasattr(response, "body_iterator"):
+                        chunks = [chunk async for chunk in response.body_iterator]
+                        body = b"".join(chunks)
+                        response = Response(
+                            content=body,
+                            status_code=response.status_code,
+                            headers=dict(response.headers),
+                            media_type=response.media_type,
+                        )
+                    if body:
+                        payload = json.loads(body.decode("utf-8"))
+                        tools = (((payload or {}).get("result") or {}).get("tools") or [])
+                        output_template_by_tool = {
+                            "xfloor_set_active_floor": SET_ACTIVE_FLOOR_WIDGET_URI,
+                            "xfloor_query_current_floor": QUERY_CURRENT_FLOOR_WIDGET_URI,
+                        }
+                        for tool in tools:
+                            tool_name = tool.get("name")
+                            template_uri = output_template_by_tool.get(tool_name)
+                            if not template_uri:
+                                continue
+                            annotations = tool.get("annotations") if isinstance(tool.get("annotations"), dict) else {}
+                            annotations["openai/outputTemplate"] = template_uri
+                            tool["annotations"] = annotations
+                            meta = tool.get("_meta") if isinstance(tool.get("_meta"), dict) else {}
+                            meta["openai/outputTemplate"] = template_uri
+                            tool["_meta"] = meta
+
+                        set_active_descriptor = next(
+                            (tool for tool in tools if tool.get("name") == "xfloor_set_active_floor"),
+                            None,
+                        )
+                        logger.info("tools/list descriptor xfloor_set_active_floor=%s", set_active_descriptor)
+                        response = JSONResponse(
+                            status_code=response.status_code,
+                            content=payload,
+                            headers=dict(response.headers),
+                        )
+                    else:
+                        logger.warning("tools/list response body unavailable for descriptor logging")
+                except Exception:
+                    logger.exception("Failed to inspect tools/list response payload")
             duration_ms = (time.perf_counter() - started) * 1000
             logger.info(
                 "MCP middleware request end request_id=%s method=%s path=%s status=%s duration_ms=%.1f session_key=%s",
