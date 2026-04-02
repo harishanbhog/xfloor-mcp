@@ -6,12 +6,14 @@ import asyncio
 from contextlib import asynccontextmanager
 import json
 import logging
+from pathlib import Path
 import time
 import uuid
 from typing import Any, AsyncIterator
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse, JSONResponse, Response
 from mcp.server.fastmcp import FastMCP
 
@@ -454,15 +456,15 @@ def create_http_app(settings: Settings) -> FastAPI:
 
         @app.get("/preview/openai/set-active-floor", response_class=HTMLResponse)
         async def openai_set_active_floor_preview() -> HTMLResponse:
-            return HTMLResponse(build_set_active_floor_preview_html())
+            return HTMLResponse(build_set_active_floor_preview_html(asset_base_url=settings.xfloor_widget_domain))
 
         @app.get("/preview/openai/query-current-floor", response_class=HTMLResponse)
         async def openai_query_current_floor_preview() -> HTMLResponse:
-            return HTMLResponse(build_query_current_floor_preview_html())
+            return HTMLResponse(build_query_current_floor_preview_html(asset_base_url=settings.xfloor_widget_domain))
 
         @app.get("/preview/openai/query_current_floor", response_class=HTMLResponse)
         async def openai_query_current_floor_preview_alias() -> HTMLResponse:
-            return HTMLResponse(build_query_current_floor_preview_html())
+            return HTMLResponse(build_query_current_floor_preview_html(asset_base_url=settings.xfloor_widget_domain))
 
     @app.get("/.well-known/oauth-protected-resource", name="oauth_protected_resource_metadata")
     async def oauth_protected_resource_metadata() -> dict[str, Any]:
@@ -487,6 +489,13 @@ def create_http_app(settings: Settings) -> FastAPI:
     @app.get("/mcp/.well-known/oauth-authorization-server")
     async def oauth_authorization_server_mcp_alias() -> dict[str, Any]:
         return oauth_authorization_server_metadata(settings)
+
+    widget_dist_dir = Path(__file__).resolve().parents[1] / "openai_widget" / "dist"
+    if widget_dist_dir.exists():
+        app.mount("/openai-widget", StaticFiles(directory=str(widget_dist_dir)), name="openai-widget-static")
+        logger.info("Mounted OpenAI widget static assets path=/openai-widget directory=%s", widget_dist_dir)
+    else:
+        logger.warning("OpenAI widget dist directory not found; run frontend build to enable static assets path=%s", widget_dist_dir)
 
     app.mount("/", _build_mcp_app(mcp))
     mount_summaries: list[dict[str, Any]] = []

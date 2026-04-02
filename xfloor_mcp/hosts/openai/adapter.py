@@ -96,7 +96,9 @@ class OpenAIHostAdapter:
                 {
                     "uri": SET_ACTIVE_FLOOR_WIDGET_URI,
                     "mimeType": WIDGET_MIME_TYPE,
-                    "text": build_floor_summary_widget_html(),
+                    "text": build_floor_summary_widget_html(
+                        asset_base_url=(self.settings.xfloor_widget_domain if self.settings else None)
+                    ),
                     "_meta": widget_meta,
                 }
             ]
@@ -149,7 +151,9 @@ class OpenAIHostAdapter:
                 {
                     "uri": QUERY_CURRENT_FLOOR_WIDGET_URI,
                     "mimeType": WIDGET_MIME_TYPE,
-                    "text": build_query_floor_answer_widget_html(),
+                    "text": build_query_floor_answer_widget_html(
+                        asset_base_url=(self.settings.xfloor_widget_domain if self.settings else None)
+                    ),
                     "_meta": query_widget_meta,
                 }
             ]
