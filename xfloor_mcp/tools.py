@@ -268,6 +268,30 @@ def _sanitize_for_js_embedding(value: Any) -> Any:
     return value
 
 
+def _collect_suspicious_escape_sequences(value: Any, path: str = "$") -> list[dict[str, Any]]:
+    findings: list[dict[str, Any]] = []
+    if isinstance(value, str):
+        matches = re.findall(r"\\[A-Za-z]", value)
+        if matches:
+            findings.append(
+                {
+                    "path": path,
+                    "matches": sorted(set(matches)),
+                    "preview_unicode_escape": value[:200].encode("unicode_escape", errors="replace").decode("ascii", errors="replace"),
+                }
+            )
+        return findings
+    if isinstance(value, list):
+        for index, item in enumerate(value):
+            findings.extend(_collect_suspicious_escape_sequences(item, f"{path}[{index}]"))
+        return findings
+    if isinstance(value, dict):
+        for key, item in value.items():
+            findings.extend(_collect_suspicious_escape_sequences(item, f"{path}.{key}"))
+        return findings
+    return findings
+
+
 def _extract_events_list(events_payload: dict[str, Any]) -> list[dict[str, Any]]:
     events = events_payload.get("events")
     if isinstance(events, list):
@@ -886,6 +910,9 @@ def register_tools(mcp: Any, client: XFloorClient, settings: Settings | None = N
             "xfloor_set_active_floor response payload diagnostics payload=%s",
             _text_debug_signature(response_json, preview_len=300),
         )
+        escape_findings = _collect_suspicious_escape_sequences(response)
+        if escape_findings:
+            logger.warning("xfloor_set_active_floor suspicious escape sequences findings=%s", escape_findings)
         response = _sanitize_for_js_embedding(response)
         template_uri = ((response.get("_meta") or {}).get("openai/outputTemplate")) if isinstance(response, dict) else None
         logger.info(
@@ -1068,6 +1095,9 @@ def register_tools(mcp: Any, client: XFloorClient, settings: Settings | None = N
             tool_name,
             _text_debug_signature(structured_json, preview_len=300),
         )
+        escape_findings = _collect_suspicious_escape_sequences(response)
+        if escape_findings:
+            logger.warning("%s suspicious escape sequences findings=%s", tool_name, escape_findings)
         response = _sanitize_for_js_embedding(response)
         if host_adapter and hasattr(host_adapter, "decorate_query_current_floor_response"):
             response = host_adapter.decorate_query_current_floor_response(response)
