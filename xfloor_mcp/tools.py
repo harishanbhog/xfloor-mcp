@@ -858,6 +858,21 @@ def register_tools(mcp: Any, client: XFloorClient, settings: Settings | None = N
         if markdown_summary:
             response["message"] = markdown_summary
             response["content"] = [{"type": "text", "text": markdown_summary}]
+        logger.info(
+            "xfloor_set_active_floor response text diagnostics message=%s content_text=%s floor_title=%s floor_description=%s",
+            _text_debug_signature(response.get("message")),
+            _text_debug_signature(((response.get("content") or [{}])[0] or {}).get("text")),
+            _text_debug_signature((response.get("structuredContent") or {}).get("floor_title")),
+            _text_debug_signature((response.get("structuredContent") or {}).get("floor_description")),
+        )
+        try:
+            response_json = json.dumps(response, ensure_ascii=False)
+        except Exception:  # noqa: BLE001
+            response_json = ""
+        logger.info(
+            "xfloor_set_active_floor response payload diagnostics payload=%s",
+            _text_debug_signature(response_json, preview_len=300),
+        )
         template_uri = ((response.get("_meta") or {}).get("openai/outputTemplate")) if isinstance(response, dict) else None
         logger.info(
             "xfloor_set_active_floor response prepared floor_id=%s blocks=%s widget_uri=%s template_uri=%s template_uri_match=%s default_logo=%s logo_normalized=%s fallback_mode=minimal_widget_diagnostics",
