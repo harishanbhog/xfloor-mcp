@@ -328,7 +328,7 @@ Each tool descriptor/result includes:
   - consumes `ui/*` JSON-RPC envelopes from `postMessage`
   - validates JSON-RPC structure before accepting payloads
   - extracts `structuredContent` from bridge payloads
-  - uses `window.openai?.toolOutput?.structuredContent` only as compatibility fallback
+  - uses `window.openai?.toolOutput?.structuredContent` only as compatibility fallback (including `openai:set_globals` compatibility event updates)
 - Widget components render explicit states (`loading`, `empty`, `ready`, `error`) and no longer use misleading placeholder business content.
 
 ### Widget troubleshooting checklist

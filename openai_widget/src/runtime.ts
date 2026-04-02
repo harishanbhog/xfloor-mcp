@@ -91,6 +91,10 @@ class BridgeStore<T> {
       const payload = parseBridgeMessage(event.data);
       if (payload) this.setReady(payload as T);
     });
+    window.addEventListener('openai:set_globals', () => {
+      const compat = readCompatibilityPayload();
+      if (compat) this.setReady(compat as T);
+    });
   }
 
   private setReady(data: T) {

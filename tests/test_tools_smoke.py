@@ -1416,6 +1416,8 @@ def test_widget_runtime_dist_is_bridge_first_and_has_openai_fallback() -> None:
     assert "method.indexOf('ui/')" in set_js
     assert "window.openai" in query_js
     assert "window.openai" in set_js
+    assert "openai:set_globals" in query_js
+    assert "openai:set_globals" in set_js
     assert "setTimeout(hydrate" not in query_js
     assert "setTimeout(hydrate" not in set_js
 

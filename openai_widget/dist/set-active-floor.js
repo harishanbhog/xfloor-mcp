@@ -49,5 +49,9 @@
     var payload = parseUiMessage(event.data);
     if (payload) render(payload);
   });
+  window.addEventListener('openai:set_globals', function () {
+    var payload = readCompatibilityData();
+    if (payload && typeof payload === 'object' && Object.keys(payload).length) render(payload);
+  });
   render(readCompatibilityData() || {});
 })();
