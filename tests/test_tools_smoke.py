@@ -1395,6 +1395,7 @@ def test_resources_list_returns_openai_widget_templates_for_discovery(monkeypatc
     first = resources[0]
     assert first["_meta"]["ui"]["domain"] == "https://appfloor.in"
     assert first["_meta"]["ui"]["csp"]["connectDomains"] == ["https://appfloor.in"]
+    assert "https://d2e5822u5ecuq8.cloudfront.net" in first["_meta"]["ui"]["csp"]["resourceDomains"]
     assert first["_meta"]["openai/widgetPrefersBorder"] is True
 
 

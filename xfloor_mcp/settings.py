@@ -54,7 +54,11 @@ class Settings(BaseSettings):
         default=["https://appfloor.in"], alias="XFLOOR_WIDGET_CONNECT_DOMAINS"
     )
     xfloor_widget_resource_domains: Annotated[list[str], NoDecode] = Field(
-        default=["https://persistent.oaistatic.com", "https://appfloor.in"],
+        default=[
+            "https://persistent.oaistatic.com",
+            "https://appfloor.in",
+            "https://d2e5822u5ecuq8.cloudfront.net",
+        ],
         alias="XFLOOR_WIDGET_RESOURCE_DOMAINS",
     )
 

@@ -232,11 +232,17 @@ def create_http_app(settings: Settings) -> FastAPI:
         set_oauth_subject(identity.verified_identity.subject if identity.verified_identity else None)
         try:
             if rpc_method in {"resources/list", "resources/templates/list"} and getattr(host_adapter, "name", "") == "openai":
+                resource_domains = list(
+                    dict.fromkeys(
+                        list(settings.xfloor_widget_resource_domains)
+                        + ["https://d2e5822u5ecuq8.cloudfront.net"]
+                    )
+                )
                 common_meta = {
                     "ui": {
                         "csp": {
                             "connectDomains": settings.xfloor_widget_connect_domains,
-                            "resourceDomains": settings.xfloor_widget_resource_domains,
+                            "resourceDomains": resource_domains,
                         },
                         "domain": settings.xfloor_widget_domain,
                     },
