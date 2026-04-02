@@ -302,6 +302,20 @@ def create_http_app(settings: Settings) -> FastAPI:
             if rpc_method == "tools/call":
                 try:
                     body = getattr(response, "body", None)
+                    if body is None and hasattr(response, "body_iterator"):
+                        chunks = [chunk async for chunk in response.body_iterator]
+                        body = b"".join(chunks)
+                        passthrough_headers = {
+                            key: value
+                            for key, value in response.headers.items()
+                            if key.lower() not in {"content-length", "transfer-encoding"}
+                        }
+                        response = Response(
+                            content=body,
+                            status_code=response.status_code,
+                            headers=passthrough_headers,
+                            media_type=response.media_type,
+                        )
                     if body:
                         body_text = body.decode("utf-8", errors="replace")
                         logger.info(
