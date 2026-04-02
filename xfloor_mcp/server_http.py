@@ -299,6 +299,24 @@ def create_http_app(settings: Settings) -> FastAPI:
                     )
                 return response
             response = await call_next(request)
+            if rpc_method == "tools/call":
+                try:
+                    body = getattr(response, "body", None)
+                    if body:
+                        body_text = body.decode("utf-8", errors="replace")
+                        logger.info(
+                            "tools/call response preview request_id=%s body_start=%r",
+                            request_id,
+                            body_text[:500],
+                        )
+                        try:
+                            json.loads(body_text)
+                        except Exception as exc:  # noqa: BLE001
+                            logger.exception("tools/call response json decode failed request_id=%s error=%s", request_id, exc)
+                    else:
+                        logger.warning("tools/call response body unavailable for preview request_id=%s", request_id)
+                except Exception:
+                    logger.exception("Failed to inspect tools/call response payload request_id=%s", request_id)
             if rpc_method == "tools/list":
                 try:
                     body = getattr(response, "body", None)
