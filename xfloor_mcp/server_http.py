@@ -346,6 +346,11 @@ def create_http_app(settings: Settings) -> FastAPI:
                                         request_id,
                                         sorted(parsed_text_payload.keys()),
                                     )
+                                    logger.info(
+                                        "tools/call normalized result preview request_id=%s result_start=%r",
+                                        request_id,
+                                        json.dumps(parsed_text_payload, ensure_ascii=False)[:500],
+                                    )
                                     payload["result"] = parsed_text_payload
                                     passthrough_headers = {
                                         key: value
