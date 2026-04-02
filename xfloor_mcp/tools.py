@@ -63,7 +63,10 @@ class XFloorRecentEventsInput(BaseModel):
 
 
 class XFloorGetFloorInfoInput(BaseModel):
-    floor_id: str
+    floor_id: str | None = Field(
+        default=None,
+        description="Optional explicit floor ID. If omitted, the currently active floor is used.",
+    )
     auth_token: str | None = None
 
 
@@ -110,6 +113,10 @@ class XFloorSetActiveFloorInput(BaseModel):
 
 
 class XFloorQueryCurrentFloorInput(BaseModel):
+    floor_id: str | None = Field(
+        default=None,
+        description="Optional explicit floor ID override. When provided, this takes priority over active session floor.",
+    )
     query: str = Field(description="Natural-language question to ask about the currently active xFloor")
     topic: str | None = Field(default=None, description="Optional topic hint to improve retrieval focus")
     limit: int | None = Field(default=None, ge=1, le=20, description="Optional maximum number of results to consider")
@@ -117,6 +124,10 @@ class XFloorQueryCurrentFloorInput(BaseModel):
 
 class XFloorPostEventToCurrentFloorInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
+    floor_id: str | None = Field(
+        default=None,
+        description="Optional explicit floor ID override. When provided, this takes priority over active session floor.",
+    )
     title: str | None = Field(default=None, description="Optional short event title. If omitted, description will be used as title.")
     description: str = Field(description="Event details or body text")
     block_id: str | None = Field(default=None, description="Optional logical block identifier for the event")
@@ -175,6 +186,13 @@ def _require_context_user_id() -> str:
 
 
 def _resolve_active_floor_id() -> dict[str, str]:
+    floor = _resolve_stored_floor_context()
+    if floor:
+        return floor
+    raise ValueError("No active floor set. Please set one first (eg: @phari or use @croma).")
+
+
+def _resolve_stored_floor_context() -> dict[str, str] | None:
     state = get_active_floor_state()
     if state:
         return {
@@ -196,8 +214,29 @@ def _resolve_active_floor_id() -> dict[str, str]:
             "floor_ref": header_floor_id,
             "source": "header_override",
         }
+    return None
 
-    raise ValueError("No active floor set. Please set one first (eg: @phari or use @croma).")
+
+def _resolve_floor_for_request(explicit_floor_id: str | None) -> tuple[dict[str, Any], str, str | None]:
+    normalized_explicit = (explicit_floor_id or "").strip() or None
+    stored_floor = _resolve_stored_floor_context()
+    stored_floor_id = (stored_floor or {}).get("floor_id") if stored_floor else None
+
+    if normalized_explicit:
+        return (
+            {
+                "floor_id": normalized_explicit,
+                "floor_ref": normalized_explicit,
+                "source": "input",
+            },
+            "input",
+            stored_floor_id,
+        )
+    if stored_floor_id and stored_floor:
+        floor = dict(stored_floor)
+        floor["source"] = "session"
+        return floor, "session", stored_floor_id
+    raise ValueError("No floor available for this request. Pass floor_id explicitly or set an active floor first.")
 
 
 def _compact(data: Any) -> dict[str, Any]:
@@ -690,7 +729,34 @@ def register_tools(mcp: Any, client: XFloorClient, settings: Settings | None = N
     )
     async def xfloor_get_floor_info(input: XFloorGetFloorInfoInput, ctx: Any = None) -> dict[str, Any]:
         token = _extract_auth_token(ctx, input.auth_token)
-        result = await client.get_floor_info(token, floor_id=input.floor_id)
+        tool_name = "xfloor_get_floor_info"
+        raw_input = input.model_dump() if hasattr(input, "model_dump") else input
+        try:
+            resolved_floor, resolution_source, stored_floor_id = _resolve_floor_for_request(input.floor_id)
+        except ValueError as exc:
+            logger.info(
+                "%s input received raw_input=%s explicit_floor_id=%s stored_floor_id=%s",
+                tool_name,
+                raw_input,
+                input.floor_id,
+                None,
+            )
+            return {"ok": False, "message": str(exc)}
+        logger.info(
+            "%s input received raw_input=%s explicit_floor_id=%s stored_floor_id=%s",
+            tool_name,
+            raw_input,
+            input.floor_id,
+            stored_floor_id,
+        )
+        logger.info(
+            "%s floor resolved resolved_floor_id=%s source=%s",
+            tool_name,
+            resolved_floor["floor_id"],
+            resolution_source,
+        )
+        logger.info("%s downstream call floor_id=%s", tool_name, resolved_floor["floor_id"])
+        result = await client.get_floor_info(token, floor_id=resolved_floor["floor_id"])
         return _compact(result)
 
     if enable_v1_expanded_tool_surface:
@@ -823,6 +889,7 @@ def register_tools(mcp: Any, client: XFloorClient, settings: Settings | None = N
         name="xfloor_query_current_floor",
         description=(
             "Use this tool ONLY if the answer to the user’s current message depends on information contained in the currently active xFloor Floor. "
+            "You may provide floor_id explicitly; explicit floor_id overrides active session floor. "
             "If the model can answer the request well without consulting Floor content, do NOT call this tool. "
             "Do NOT use this tool for any self-contained request such as general knowledge, definitions, meanings, translation, paraphrasing, "
             "rewriting, summarization, weather, web search, or other queries answerable without Floor content. "
@@ -840,14 +907,36 @@ def register_tools(mcp: Any, client: XFloorClient, settings: Settings | None = N
         },
     )
     async def xfloor_query_current_floor(input: XFloorQueryCurrentFloorInput, ctx: Any = None) -> dict[str, Any]:
+        tool_name = "xfloor_query_current_floor"
+        raw_input = input.model_dump() if hasattr(input, "model_dump") else input
         token = _extract_auth_token(ctx, None)
         try:
-            floor = _resolve_active_floor_id()
-        except ValueError:
+            floor, resolution_source, stored_floor_id = _resolve_floor_for_request(input.floor_id)
+        except ValueError as exc:
+            logger.info(
+                "%s input received raw_input=%s explicit_floor_id=%s stored_floor_id=%s",
+                tool_name,
+                raw_input,
+                input.floor_id,
+                None,
+            )
             return {
                 "ok": False,
-                "message": "No active Floor is set. Continue without xFloor, or call xfloor_set_active_floor if Floor-specific context is needed.",
+                "message": str(exc),
             }
+        logger.info(
+            "%s input received raw_input=%s explicit_floor_id=%s stored_floor_id=%s",
+            tool_name,
+            raw_input,
+            input.floor_id,
+            stored_floor_id,
+        )
+        logger.info(
+            "%s floor resolved resolved_floor_id=%s source=%s",
+            tool_name,
+            floor["floor_id"],
+            resolution_source,
+        )
         use_xfloor, reason = should_use_xfloor(input.query, floor)
         if not use_xfloor:
             if reason == "generic_writing_task":
@@ -861,6 +950,7 @@ def register_tools(mcp: Any, client: XFloorClient, settings: Settings | None = N
             }
         user_id = _require_context_user_id()
         query_text = input.query if not input.topic else f"{input.query}\n\nTopic: {input.topic}"
+        logger.info("%s downstream query_memory floor_id=%s", tool_name, floor["floor_id"])
         result = await client.query_memory(
             token,
             user_id=user_id,
@@ -928,16 +1018,40 @@ def register_tools(mcp: Any, client: XFloorClient, settings: Settings | None = N
         name="xfloor_post_event_to_current_floor",
         description=(
             "Create a text-only event in the currently active xFloor Floor. Use this when the user explicitly wants to post, log, or save text to the active Floor. "
+            "You may provide floor_id explicitly; explicit floor_id overrides active session floor. "
             "Do not use it for general knowledge, paraphrasing, summarization, translation, meanings, rewriting, weather, web search, or any request answerable without floor context. "
             "Do not use if there is no active floor set. When in doubt, do not call the tool."
         ),
         annotations={"readOnlyHint": False, "openWorldHint": False, "destructiveHint": False},
     )
     async def xfloor_post_event_to_current_floor(input: XFloorPostEventToCurrentFloorInput, ctx: Any = None) -> dict[str, Any]:
-        logger.info("xfloor_post_event_to_current_floor invoked (text-only)")
+        tool_name = "xfloor_post_event_to_current_floor"
+        raw_input = input.model_dump() if hasattr(input, "model_dump") else input
         token = _extract_auth_token(ctx, None)
-        floor = _resolve_active_floor_id()
-        logger.info("Active floor resolved floor_id=%s source=%s", floor["floor_id"], floor["source"])
+        try:
+            floor, resolution_source, stored_floor_id = _resolve_floor_for_request(input.floor_id)
+        except ValueError as exc:
+            logger.info(
+                "%s input received raw_input=%s explicit_floor_id=%s stored_floor_id=%s",
+                tool_name,
+                raw_input,
+                input.floor_id,
+                None,
+            )
+            return {"accepted": False, "posted": False, "message": str(exc)}
+        logger.info(
+            "%s input received raw_input=%s explicit_floor_id=%s stored_floor_id=%s",
+            tool_name,
+            raw_input,
+            input.floor_id,
+            stored_floor_id,
+        )
+        logger.info(
+            "%s floor resolved resolved_floor_id=%s source=%s",
+            tool_name,
+            floor["floor_id"],
+            resolution_source,
+        )
         user_id = _require_context_user_id()
         logger.info(
             "Downstream auth path auth_mode=%s using_service_token=%s",
@@ -961,7 +1075,7 @@ def register_tools(mcp: Any, client: XFloorClient, settings: Settings | None = N
         normalized_title = payload["title"]
 
         input_info = json.dumps(payload)
-        logger.info("Downstream xFloor create_event invoked")
+        logger.info("%s downstream create_event floor_id=%s", tool_name, floor["floor_id"])
         result = await client.create_event(token, input_info=input_info, files=None)
         compact_result = _compact(result)
         status, message = _queued_status(compact_result)
