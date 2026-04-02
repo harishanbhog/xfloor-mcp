@@ -298,12 +298,45 @@ This repo now exposes an additive **v1 ChatGPT-facing MCP surface** on top of th
 - Raw xFloor `items[].text` are parsed when possible and mapped into normalized floor rows.
 - Malformed `item.text` fails soft: answer is still returned, malformed item count is included in `normalization_meta`.
 - Relevant floors are sorted by score and returned as `relevant_floors`.
-- This deployment is intentionally **plain remote MCP first**: query widgets are disabled for stability and text fallback is the default UX.
+- `tools/call` HTTP middleware now normalizes JSON-in-text tool responses into a schema-compliant MCP result shape:
+  - `content` (list)
+  - `structuredContent` (object)
+  - `_meta` (including `openai/outputTemplate`)
+  - optional `isError`
+  This avoids client fallback behavior caused by non-standard mixed result objects.
 - `xfloor_set_active_floor` stores enriched floor context in session memory (id/ref plus available title/description/tags from floor info).
 - `xfloor_query_current_floor` uses lightweight scope gating:
   - explicit floor-scoped prompts proceed,
   - generic writing/editing prompts no-op,
   - ambiguous context-seeking prompts proceed only when related to active-floor metadata.
+
+### OpenAI widget rendering behavior (latest)
+
+- OpenAI widget resources are registered at:
+  - `ui://widget/set-active-floor-v1.html`
+  - `ui://widget/query-current-floor-v1.html`
+- Tool responses are decorated with `_meta.openai/outputTemplate` so ChatGPT can render the matching widget template.
+- Widget HTML shells now prefer **inline CSS/JS assets** (from `openai_widget/dist`) with fallback external asset URLs, reducing sandbox-origin fetch issues.
+- Widget frontend hydration now supports delayed bridge data by:
+  - retrying initial reads for `window.structuredContent`, `window.__structuredContent`, and `window.openai?.toolOutput?.structuredContent`
+  - subscribing to `openai:set_globals` and `message` events to re-read/re-render when tool globals are populated asynchronously.
+- Result: when bridge data arrives after first paint, widgets update from fallback placeholders (`xFloor` / `Here's what I found`) to real tool output.
+
+### Widget troubleshooting checklist
+
+If widget chrome appears but content stays at fallback defaults:
+
+1. Confirm `tools/call normalized result preview` logs include:
+   - `_meta.openai/outputTemplate`
+   - non-empty `structuredContent`
+2. Confirm template URI matches the tool:
+   - set-active-floor -> `ui://widget/set-active-floor-v1.html`
+   - query-current-floor -> `ui://widget/query-current-floor-v1.html`
+3. Confirm widget CSP/domain envs are correct:
+   - `XFLOOR_WIDGET_DOMAIN`
+   - `XFLOOR_WIDGET_CONNECT_DOMAINS`
+   - `XFLOOR_WIDGET_RESOURCE_DOMAINS`
+4. If preview routes render but ChatGPT widget does not, capture one `tools/call normalized result preview` line and one widget resource-serve line from server logs for diffing.
 
 ### Active-floor precedence rules
 
