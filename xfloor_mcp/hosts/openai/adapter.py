@@ -211,6 +211,7 @@ class OpenAIHostAdapter:
             resource_payload = self._build_widget_resource()
             csp_meta = resource_payload["contents"][0]["_meta"]["openai/widgetCSP"]
             ui_meta = resource_payload["contents"][0]["_meta"].get("ui", {})
+            html = resource_payload["contents"][0].get("text") or ""
             logger.info(
                 "openai widget resource served uri=%s csp_connect=%s csp_resource=%s ui_domain=%s",
                 SET_ACTIVE_FLOOR_WIDGET_URI,
@@ -218,18 +219,29 @@ class OpenAIHostAdapter:
                 csp_meta.get("resourceDomains"),
                 ui_meta.get("domain"),
             )
+            logger.info(
+                "openai widget html preview uri=%s html_start=%r",
+                SET_ACTIVE_FLOOR_WIDGET_URI,
+                html[:500],
+            )
             return resource_payload
 
         def openai_query_current_floor_widget() -> dict[str, Any]:
             resource_payload = self._build_query_widget_resource()
             csp_meta = resource_payload["contents"][0]["_meta"]["openai/widgetCSP"]
             ui_meta = resource_payload["contents"][0]["_meta"].get("ui", {})
+            html = resource_payload["contents"][0].get("text") or ""
             logger.info(
                 "openai query widget resource served uri=%s csp_connect=%s csp_resource=%s ui_domain=%s",
                 QUERY_CURRENT_FLOOR_WIDGET_URI,
                 csp_meta.get("connectDomains") or csp_meta.get("connect_domains"),
                 csp_meta.get("resourceDomains") or csp_meta.get("resource_domains"),
                 ui_meta.get("domain"),
+            )
+            logger.info(
+                "openai query widget html preview uri=%s html_start=%r",
+                QUERY_CURRENT_FLOOR_WIDGET_URI,
+                html[:500],
             )
             return resource_payload
 

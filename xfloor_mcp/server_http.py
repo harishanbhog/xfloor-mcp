@@ -420,6 +420,24 @@ def create_http_app(settings: Settings) -> FastAPI:
         return oauth_authorization_server_metadata(settings)
 
     app.mount("/", _build_mcp_app(mcp))
+    mount_summaries: list[dict[str, Any]] = []
+    for route in app.routes:
+        route_path = getattr(route, "path", None)
+        route_name = getattr(route, "name", None)
+        route_type = route.__class__.__name__
+        route_app = getattr(route, "app", None)
+        route_app_type = route_app.__class__.__name__ if route_app is not None else None
+        route_directory = getattr(route_app, "directory", None)
+        mount_summaries.append(
+            {
+                "path": route_path,
+                "name": route_name,
+                "type": route_type,
+                "app_type": route_app_type,
+                "directory": str(route_directory) if route_directory is not None else None,
+            }
+        )
+    logger.info("FastAPI route/mount summary routes=%s", mount_summaries)
     return app
 
 

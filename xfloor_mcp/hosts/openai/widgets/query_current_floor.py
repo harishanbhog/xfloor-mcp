@@ -34,6 +34,7 @@ def _build_query_current_floor_document(*, preview_data: dict | None = None) -> 
   <head>
     <meta charset=\"utf-8\" />
     <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />
+    <meta name=\"xfloor-widget-source\" content=\"python-inline-widget-v1:query-current-floor\" />
     <style>
       * { box-sizing: border-box; }
       body { margin: 0; padding: 12px; font-family: Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif; background: #f6f7fb; color: #0f172a; }

@@ -31,6 +31,7 @@ def _build_widget_document(*, preview_data: dict[str, Any] | None = None) -> str
   <head>
     <meta charset=\"utf-8\" />
     <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />
+    <meta name=\"xfloor-widget-source\" content=\"python-inline-widget-v1:set-active-floor\" />
     <title>xFloor Active Floor Widget</title>
     <style>
       :root {{ color-scheme: light; }}
