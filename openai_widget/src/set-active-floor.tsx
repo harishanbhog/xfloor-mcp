@@ -1,6 +1,6 @@
 import React from 'react';
 import { createRoot } from 'react-dom/client';
-import { getWidgetDataWithRetry } from './runtime';
+import { getSetActiveFloorData, getWidgetDataWithRetry, subscribeWidgetData } from './runtime';
 import type { SetActiveFloorData } from './types';
 import './styles.css';
 
@@ -9,11 +9,16 @@ function App() {
 
   React.useEffect(() => {
     let cancelled = false;
+    const sync = () => {
+      if (!cancelled) setData(getSetActiveFloorData() || {});
+    };
+    const unsubscribe = subscribeWidgetData(sync);
     getWidgetDataWithRetry<SetActiveFloorData>().then((next) => {
       if (!cancelled) setData(next || {});
     });
     return () => {
       cancelled = true;
+      unsubscribe();
     };
   }, []);
 

@@ -34,7 +34,7 @@
   var attempts = 0;
   var maxAttempts = 60;
   var intervalMs = 100;
-  (function hydrate() {
+  function hydrate() {
     var data = readData();
     if (hasData(data) || attempts >= maxAttempts) {
       render(data || {});
@@ -42,5 +42,14 @@
     }
     attempts += 1;
     setTimeout(hydrate, intervalMs);
-  })();
+  }
+  window.addEventListener('openai:set_globals', function () {
+    attempts = 0;
+    hydrate();
+  });
+  window.addEventListener('message', function () {
+    attempts = 0;
+    hydrate();
+  });
+  hydrate();
 })();

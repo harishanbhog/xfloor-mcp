@@ -1,6 +1,6 @@
 import React from 'react';
 import { createRoot } from 'react-dom/client';
-import { getWidgetDataWithRetry } from './runtime';
+import { getQueryCurrentFloorData, getWidgetDataWithRetry, subscribeWidgetData } from './runtime';
 import type { QueryCurrentFloorData } from './types';
 import './styles.css';
 
@@ -9,11 +9,16 @@ function App() {
 
   React.useEffect(() => {
     let cancelled = false;
+    const sync = () => {
+      if (!cancelled) setData(getQueryCurrentFloorData() || {});
+    };
+    const unsubscribe = subscribeWidgetData(sync);
     getWidgetDataWithRetry<QueryCurrentFloorData>().then((next) => {
       if (!cancelled) setData(next || {});
     });
     return () => {
       cancelled = true;
+      unsubscribe();
     };
   }, []);
 

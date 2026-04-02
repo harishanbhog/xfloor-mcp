@@ -42,6 +42,17 @@ export async function getWidgetDataWithRetry<T>(maxAttempts = 60, intervalMs = 1
   return {} as T;
 }
 
+export function subscribeWidgetData(listener: () => void): () => void {
+  const onGlobals = () => listener();
+  const onMessage = () => listener();
+  window.addEventListener('openai:set_globals', onGlobals as EventListener);
+  window.addEventListener('message', onMessage as EventListener);
+  return () => {
+    window.removeEventListener('openai:set_globals', onGlobals as EventListener);
+    window.removeEventListener('message', onMessage as EventListener);
+  };
+}
+
 export function getSetActiveFloorData(): SetActiveFloorData {
   return getWidgetData<SetActiveFloorData>();
 }
