@@ -113,9 +113,8 @@ class XFloorSetActiveFloorInput(BaseModel):
 
 
 class XFloorQueryCurrentFloorInput(BaseModel):
-    floor_id: str | None = Field(
-        default=None,
-        description="Optional explicit floor ID override. When provided, this takes priority over active session floor.",
+    floor_id: str = Field(
+        description="Floor ID to query, e.g. 'rmm' or 'pesedu'. Required for reliable cross-host operation.",
     )
     query: str = Field(description="Natural-language question to ask about the currently active xFloor")
     topic: str | None = Field(default=None, description="Optional topic hint to improve retrieval focus")
@@ -124,9 +123,8 @@ class XFloorQueryCurrentFloorInput(BaseModel):
 
 class XFloorPostEventToCurrentFloorInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    floor_id: str | None = Field(
-        default=None,
-        description="Optional explicit floor ID override. When provided, this takes priority over active session floor.",
+    floor_id: str = Field(
+        description="Floor ID to post, e.g. 'rmm' or 'pesedu'. Required for reliable cross-host operation.",
     )
     title: str | None = Field(default=None, description="Optional short event title. If omitted, description will be used as title.")
     description: str = Field(description="Event details or body text")
@@ -889,7 +887,7 @@ def register_tools(mcp: Any, client: XFloorClient, settings: Settings | None = N
         name="xfloor_query_current_floor",
         description=(
             "Use this tool ONLY if the answer to the user’s current message depends on information contained in the currently active xFloor Floor. "
-            "You may provide floor_id explicitly; explicit floor_id overrides active session floor. "
+            "Provide floor_id explicitly on each call. "
             "If the model can answer the request well without consulting Floor content, do NOT call this tool. "
             "Do NOT use this tool for any self-contained request such as general knowledge, definitions, meanings, translation, paraphrasing, "
             "rewriting, summarization, weather, web search, or other queries answerable without Floor content. "
@@ -1018,7 +1016,7 @@ def register_tools(mcp: Any, client: XFloorClient, settings: Settings | None = N
         name="xfloor_post_event_to_current_floor",
         description=(
             "Create a text-only event in the currently active xFloor Floor. Use this when the user explicitly wants to post, log, or save text to the active Floor. "
-            "You may provide floor_id explicitly; explicit floor_id overrides active session floor. "
+            "Provide floor_id explicitly on each call. "
             "Do not use it for general knowledge, paraphrasing, summarization, translation, meanings, rewriting, weather, web search, or any request answerable without floor context. "
             "Do not use if there is no active floor set. When in doubt, do not call the tool."
         ),
