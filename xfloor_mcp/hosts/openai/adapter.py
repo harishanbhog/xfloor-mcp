@@ -180,11 +180,17 @@ class OpenAIHostAdapter:
             SET_ACTIVE_FLOOR_WIDGET_URI,
             QUERY_CURRENT_FLOOR_WIDGET_URI,
         )
+        resource_domains = list(
+            dict.fromkeys(
+                list(self.settings.xfloor_widget_resource_domains if self.settings else [])
+                + DEFAULT_WIDGET_RESOURCE_DOMAINS
+            )
+        )
         set_active_registration_meta = {
             "ui": {
                 "csp": {
                     "connectDomains": self.settings.xfloor_widget_connect_domains if self.settings else [],
-                    "resourceDomains": self.settings.xfloor_widget_resource_domains if self.settings else [],
+                    "resourceDomains": resource_domains,
                 },
                 "domain": self.settings.xfloor_widget_domain if self.settings else None,
             }
@@ -193,7 +199,7 @@ class OpenAIHostAdapter:
             "ui": {
                 "csp": {
                     "connectDomains": self.settings.xfloor_widget_connect_domains if self.settings else [],
-                    "resourceDomains": self.settings.xfloor_widget_resource_domains if self.settings else [],
+                    "resourceDomains": resource_domains,
                 },
                 "domain": self.settings.xfloor_widget_domain if self.settings else None,
             }

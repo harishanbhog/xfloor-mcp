@@ -220,6 +220,10 @@ class TestToolsSmoke:
         assert "ui://widget/query-current-floor-v1.html" in mcp.resources
         assert mcp.resource_kwargs.get(SET_ACTIVE_FLOOR_WIDGET_URI) is not None
         assert mcp.resource_kwargs.get("ui://widget/query-current-floor-v1.html") is not None
+        assert (
+            "https://d2e5822u5ecuq8.cloudfront.net"
+            in (mcp.resource_kwargs.get(SET_ACTIVE_FLOOR_WIDGET_URI).get("_meta", {}).get("ui", {}).get("csp", {}).get("resourceDomains", []))
+        )
         widget_resource = mcp.resources[SET_ACTIVE_FLOOR_WIDGET_URI]()
         assert widget_resource["contents"][0]["uri"] == SET_ACTIVE_FLOOR_WIDGET_URI
         assert widget_resource["contents"][0]["mimeType"].startswith("text/html")
