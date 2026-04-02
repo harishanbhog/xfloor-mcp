@@ -259,16 +259,26 @@ class OpenAIHostAdapter:
         except TypeError:
             mcp.resource(QUERY_CURRENT_FLOOR_WIDGET_URI)(openai_query_current_floor_widget)
 
+    def build_render_tool_result_meta(self, resource_uri: str) -> dict[str, Any]:
+        """Metadata contract for render tools (Apps-first + ChatGPT compatibility)."""
+
+        return {
+            "ui": {"resourceUri": resource_uri},
+            "openai/outputTemplate": resource_uri,
+        }
+
+    def build_render_tool_annotations(self, resource_uri: str) -> dict[str, Any]:
+        return {
+            "openai/outputTemplate": resource_uri,
+            "ui/resourceUri": resource_uri,
+        }
+
     def decorate_set_active_floor_response(self, core_response: dict[str, Any]) -> dict[str, Any]:
         decorated = dict(core_response)
-        decorated["_meta"] = {
-            "openai/outputTemplate": SET_ACTIVE_FLOOR_WIDGET_URI,
-        }
+        decorated["_meta"] = self.build_render_tool_result_meta(SET_ACTIVE_FLOOR_WIDGET_URI)
         return decorated
 
     def decorate_query_current_floor_response(self, response: dict[str, Any]) -> dict[str, Any]:
         decorated = dict(response)
-        decorated["_meta"] = {
-            "openai/outputTemplate": QUERY_CURRENT_FLOOR_WIDGET_URI,
-        }
+        decorated["_meta"] = self.build_render_tool_result_meta(QUERY_CURRENT_FLOOR_WIDGET_URI)
         return decorated

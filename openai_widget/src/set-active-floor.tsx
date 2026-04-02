@@ -1,29 +1,18 @@
 import React from 'react';
 import { createRoot } from 'react-dom/client';
-import { getSetActiveFloorData, getWidgetDataWithRetry, subscribeWidgetData } from './runtime';
-import type { SetActiveFloorData } from './types';
+import { getSetActiveSnapshot, initializeWidgetBridge, subscribeSetActive } from './runtime';
 import './styles.css';
 
 function App() {
-  const [data, setData] = React.useState<SetActiveFloorData>({});
+  const state = React.useSyncExternalStore(subscribeSetActive, getSetActiveSnapshot, getSetActiveSnapshot);
 
-  React.useEffect(() => {
-    let cancelled = false;
-    const sync = () => {
-      if (!cancelled) setData(getSetActiveFloorData() || {});
-    };
-    const unsubscribe = subscribeWidgetData(sync);
-    getWidgetDataWithRetry<SetActiveFloorData>().then((next) => {
-      if (!cancelled) setData(next || {});
-    });
-    return () => {
-      cancelled = true;
-      unsubscribe();
-    };
-  }, []);
+  if (state.status === 'loading') return <section className="card"><div className="answer">Loading…</div></section>;
+  if (state.status === 'error') return <section className="card"><div className="answer">Error: {state.error}</div></section>;
+  if (state.status === 'empty') return <section className="card"><div className="answer">No floor data yet.</div></section>;
 
+  const data = state.data;
   const blocks = Array.isArray(data.blocks) ? data.blocks.slice(0, 6) : [];
-  const title = data.floor_title || data.floor_ref || 'xFloor';
+  const title = data.floor_title || data.floor_ref || 'Active floor';
   const floorRef = data.floor_ref ? `@${String(data.floor_ref).replace(/^@/, '')}` : '';
   const floorUrl = data.floor_id ? `https://${data.floor_id}.xfloor.ai` : '';
 
@@ -51,4 +40,5 @@ function App() {
   );
 }
 
+initializeWidgetBridge();
 createRoot(document.getElementById('root')!).render(<App />);

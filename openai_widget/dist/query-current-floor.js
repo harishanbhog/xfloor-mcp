@@ -1,5 +1,18 @@
 (function () {
-  function readData() {
+  function parseUiMessage(raw) {
+    var data = typeof raw === 'string' ? parseJson(raw) : raw;
+    if (!data || typeof data !== 'object') return null;
+    if (data.jsonrpc !== '2.0' || typeof data.method !== 'string' || data.method.indexOf('ui/') !== 0) return null;
+    var params = data.params && typeof data.params === 'object' ? data.params : {};
+    if (params.structuredContent && typeof params.structuredContent === 'object') return params.structuredContent;
+    if (params.result && typeof params.result === 'object' && params.result.structuredContent && typeof params.result.structuredContent === 'object') return params.result.structuredContent;
+    if (data.result && typeof data.result === 'object' && data.result.structuredContent && typeof data.result.structuredContent === 'object') return data.result.structuredContent;
+    return null;
+  }
+  function parseJson(value) {
+    try { return JSON.parse(value); } catch (_e) { return null; }
+  }
+  function readCompatibilityData() {
     try {
       var node = document.getElementById('widget-preview-data');
       if (node && node.textContent && node.textContent.trim() && node.textContent.trim() !== '{}') {
@@ -9,13 +22,14 @@
     var api = window.openai || {};
     return window.structuredContent || window.__structuredContent || (api.toolOutput && api.toolOutput.structuredContent) || {};
   }
-  function hasData(value) {
-    return !!(value && typeof value === 'object' && Object.keys(value).length);
-  }
   function render(data) {
     var root = document.getElementById('root');
     if (!root) return;
-    var answer = (data.answer || '').trim() || "Here's what I found.";
+    if (!data || typeof data !== 'object' || !Object.keys(data).length) {
+      root.innerHTML = '<section class="card"><div class="answer">No query result yet.</div></section>';
+      return;
+    }
+    var answer = (data.answer || '').trim();
     var related = Array.isArray(data.relatedFloors) ? data.relatedFloors.slice(0, 6) : [];
     var links = related.map(function (item) {
       var floorId = String((item && item.floor_id) || '').trim();
@@ -27,25 +41,9 @@
     }).join('');
     root.innerHTML = '<section class="card"><div class="answer">' + answer + '</div>' + (links ? '<div class="links">' + links + '</div>' : '') + '</section>';
   }
-  var attempts = 0;
-  var maxAttempts = 60;
-  var intervalMs = 100;
-  function hydrate() {
-    var data = readData();
-    if (hasData(data) || attempts >= maxAttempts) {
-      render(data || {});
-      return;
-    }
-    attempts += 1;
-    setTimeout(hydrate, intervalMs);
-  }
-  window.addEventListener('openai:set_globals', function () {
-    attempts = 0;
-    hydrate();
+  window.addEventListener('message', function (event) {
+    var payload = parseUiMessage(event.data);
+    if (payload) render(payload);
   });
-  window.addEventListener('message', function () {
-    attempts = 0;
-    hydrate();
-  });
-  hydrate();
+  render(readCompatibilityData() || {});
 })();

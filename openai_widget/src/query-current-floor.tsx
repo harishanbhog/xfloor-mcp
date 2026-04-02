@@ -1,28 +1,17 @@
 import React from 'react';
 import { createRoot } from 'react-dom/client';
-import { getQueryCurrentFloorData, getWidgetDataWithRetry, subscribeWidgetData } from './runtime';
-import type { QueryCurrentFloorData } from './types';
+import { getQuerySnapshot, initializeWidgetBridge, subscribeQuery } from './runtime';
 import './styles.css';
 
 function App() {
-  const [data, setData] = React.useState<QueryCurrentFloorData>({});
+  const state = React.useSyncExternalStore(subscribeQuery, getQuerySnapshot, getQuerySnapshot);
 
-  React.useEffect(() => {
-    let cancelled = false;
-    const sync = () => {
-      if (!cancelled) setData(getQueryCurrentFloorData() || {});
-    };
-    const unsubscribe = subscribeWidgetData(sync);
-    getWidgetDataWithRetry<QueryCurrentFloorData>().then((next) => {
-      if (!cancelled) setData(next || {});
-    });
-    return () => {
-      cancelled = true;
-      unsubscribe();
-    };
-  }, []);
+  if (state.status === 'loading') return <section className="card"><div className="answer">Loading…</div></section>;
+  if (state.status === 'error') return <section className="card"><div className="answer">Error: {state.error}</div></section>;
+  if (state.status === 'empty') return <section className="card"><div className="answer">No query result yet.</div></section>;
 
-  const answer = data.answer?.trim() || "Here's what I found.";
+  const data = state.data;
+  const answer = data.answer?.trim() || '';
   const related = Array.isArray(data.relatedFloors) ? data.relatedFloors.slice(0, 6) : [];
 
   return (
@@ -46,4 +35,5 @@ function App() {
   );
 }
 
+initializeWidgetBridge();
 createRoot(document.getElementById('root')!).render(<App />);

@@ -302,89 +302,7 @@ def create_http_app(settings: Settings) -> FastAPI:
                 return response
             response = await call_next(request)
             if rpc_method == "tools/call":
-                try:
-                    body = getattr(response, "body", None)
-                    if body is None and hasattr(response, "body_iterator"):
-                        chunks = [chunk async for chunk in response.body_iterator]
-                        body = b"".join(chunks)
-                        passthrough_headers = {
-                            key: value
-                            for key, value in response.headers.items()
-                            if key.lower() not in {"content-length", "transfer-encoding"}
-                        }
-                        response = Response(
-                            content=body,
-                            status_code=response.status_code,
-                            headers=passthrough_headers,
-                            media_type=response.media_type,
-                        )
-                    if body:
-                        body_text = body.decode("utf-8", errors="replace")
-                        logger.info(
-                            "tools/call response preview request_id=%s body_start=%r",
-                            request_id,
-                            body_text[:500],
-                        )
-                        try:
-                            payload = json.loads(body_text)
-                            result = payload.get("result") if isinstance(payload, dict) else None
-                            content = result.get("content") if isinstance(result, dict) else None
-                            first_text = None
-                            if (
-                                isinstance(content, list)
-                                and content
-                                and isinstance(content[0], dict)
-                                and isinstance(content[0].get("text"), str)
-                            ):
-                                first_text = content[0].get("text")
-                            if isinstance(first_text, str):
-                                try:
-                                    parsed_text_payload = json.loads(first_text)
-                                except Exception:  # noqa: BLE001
-                                    parsed_text_payload = None
-                                if isinstance(parsed_text_payload, dict) and parsed_text_payload.get("_meta"):
-                                    normalized_result: dict[str, Any] = {}
-                                    content_items = parsed_text_payload.get("content")
-                                    normalized_result["content"] = content_items if isinstance(content_items, list) else []
-                                    structured_content = parsed_text_payload.get("structuredContent")
-                                    if not isinstance(structured_content, dict):
-                                        structured_content = {
-                                            key: value
-                                            for key, value in parsed_text_payload.items()
-                                            if key not in {"_meta", "content", "isError"}
-                                        }
-                                    normalized_result["structuredContent"] = structured_content
-                                    normalized_result["_meta"] = parsed_text_payload.get("_meta")
-                                    if "isError" in parsed_text_payload:
-                                        normalized_result["isError"] = bool(parsed_text_payload.get("isError"))
-                                    logger.info(
-                                        "tools/call normalized text payload request_id=%s parsed_keys=%s normalized_keys=%s",
-                                        request_id,
-                                        sorted(parsed_text_payload.keys()),
-                                        sorted(normalized_result.keys()),
-                                    )
-                                    logger.info(
-                                        "tools/call normalized result preview request_id=%s result_start=%r",
-                                        request_id,
-                                        json.dumps(normalized_result, ensure_ascii=False)[:500],
-                                    )
-                                    payload["result"] = normalized_result
-                                    passthrough_headers = {
-                                        key: value
-                                        for key, value in response.headers.items()
-                                        if key.lower() not in {"content-length", "transfer-encoding"}
-                                    }
-                                    response = JSONResponse(
-                                        status_code=response.status_code,
-                                        content=payload,
-                                        headers=passthrough_headers,
-                                    )
-                        except Exception as exc:  # noqa: BLE001
-                            logger.exception("tools/call response json decode failed request_id=%s error=%s", request_id, exc)
-                    else:
-                        logger.warning("tools/call response body unavailable for preview request_id=%s", request_id)
-                except Exception:
-                    logger.exception("Failed to inspect tools/call response payload request_id=%s", request_id)
+                logger.info("tools/call passthrough mode active; no response-shape rewriting request_id=%s", request_id)
             if rpc_method == "tools/list":
                 try:
                     body = getattr(response, "body", None)
@@ -406,8 +324,8 @@ def create_http_app(settings: Settings) -> FastAPI:
                         payload = json.loads(body.decode("utf-8"))
                         tools = (((payload or {}).get("result") or {}).get("tools") or [])
                         output_template_by_tool = {
-                            "xfloor_set_active_floor": SET_ACTIVE_FLOOR_WIDGET_URI,
-                            "xfloor_query_current_floor": QUERY_CURRENT_FLOOR_WIDGET_URI,
+                            "xfloor_render_set_active_floor_widget": SET_ACTIVE_FLOOR_WIDGET_URI,
+                            "xfloor_render_query_current_floor_widget": QUERY_CURRENT_FLOOR_WIDGET_URI,
                         }
                         for tool in tools:
                             tool_name = tool.get("name")
@@ -416,16 +334,20 @@ def create_http_app(settings: Settings) -> FastAPI:
                                 continue
                             annotations = tool.get("annotations") if isinstance(tool.get("annotations"), dict) else {}
                             annotations["openai/outputTemplate"] = template_uri
+                            annotations["ui/resourceUri"] = template_uri
                             tool["annotations"] = annotations
                             meta = tool.get("_meta") if isinstance(tool.get("_meta"), dict) else {}
                             meta["openai/outputTemplate"] = template_uri
+                            ui_meta = meta.get("ui") if isinstance(meta.get("ui"), dict) else {}
+                            ui_meta["resourceUri"] = template_uri
+                            meta["ui"] = ui_meta
                             tool["_meta"] = meta
 
                         set_active_descriptor = next(
-                            (tool for tool in tools if tool.get("name") == "xfloor_set_active_floor"),
+                            (tool for tool in tools if tool.get("name") == "xfloor_render_set_active_floor_widget"),
                             None,
                         )
-                        logger.info("tools/list descriptor xfloor_set_active_floor=%s", set_active_descriptor)
+                        logger.info("tools/list descriptor xfloor_render_set_active_floor_widget=%s", set_active_descriptor)
                         patched_headers = {
                             key: value
                             for key, value in response.headers.items()

@@ -284,6 +284,24 @@ This repo now exposes an additive **v1 ChatGPT-facing MCP surface** on top of th
    - Clears active Floor context for the current conversation/session.
    - Use when the user explicitly asks to reset or stop using the current Floor.
 
+### Render tools (Apps SDK / MCP Apps)
+
+These tools are dedicated to widget rendering and are the canonical place for render metadata:
+
+1. `xfloor_render_set_active_floor_widget`
+   - Input: the `structuredContent` payload from `xfloor_set_active_floor`.
+   - Output metadata includes:
+     - `_meta.ui.resourceUri = ui://widget/set-active-floor-v1.html`
+     - `_meta["openai/outputTemplate"] = ui://widget/set-active-floor-v1.html` (compat alias)
+
+2. `xfloor_render_query_current_floor_widget`
+   - Input: the `structuredContent` payload from `xfloor_query_current_floor`.
+   - Output metadata includes:
+     - `_meta.ui.resourceUri = ui://widget/query-current-floor-v1.html`
+     - `_meta["openai/outputTemplate"] = ui://widget/query-current-floor-v1.html` (compat alias)
+
+Data tools remain the source of truth for business data and no longer own render-template binding metadata.
+
 ### Posting status (temporary rollback)
 
 - Posting is currently **text-only**.
@@ -298,12 +316,7 @@ This repo now exposes an additive **v1 ChatGPT-facing MCP surface** on top of th
 - Raw xFloor `items[].text` are parsed when possible and mapped into normalized floor rows.
 - Malformed `item.text` fails soft: answer is still returned, malformed item count is included in `normalization_meta`.
 - Relevant floors are sorted by score and returned as `relevant_floors`.
-- `tools/call` HTTP middleware now normalizes JSON-in-text tool responses into a schema-compliant MCP result shape:
-  - `content` (list)
-  - `structuredContent` (object)
-  - `_meta` (including `openai/outputTemplate`)
-  - optional `isError`
-  This avoids client fallback behavior caused by non-standard mixed result objects.
+- `tools/call` middleware now runs in passthrough mode for results (no text-payload salvage/rewrite), so tool implementations are responsible for returning correct MCP result shapes directly.
 - `xfloor_set_active_floor` stores enriched floor context in session memory (id/ref plus available title/description/tags from floor info).
 - `xfloor_query_current_floor` uses lightweight scope gating:
   - explicit floor-scoped prompts proceed,
@@ -315,18 +328,21 @@ This repo now exposes an additive **v1 ChatGPT-facing MCP surface** on top of th
 - OpenAI widget resources are registered at:
   - `ui://widget/set-active-floor-v1.html`
   - `ui://widget/query-current-floor-v1.html`
-- Tool responses are decorated with `_meta.openai/outputTemplate` so ChatGPT can render the matching widget template.
+- Render-tool responses carry `_meta.ui.resourceUri` (Apps-first) and `_meta.openai/outputTemplate` (ChatGPT compatibility alias).
 - Widget HTML shells now prefer **inline CSS/JS assets** (from `openai_widget/dist`) with fallback external asset URLs, reducing sandbox-origin fetch issues.
-- Widget frontend hydration now supports delayed bridge data by:
-  - retrying initial reads for `window.structuredContent`, `window.__structuredContent`, and `window.openai?.toolOutput?.structuredContent`
-  - subscribing to `openai:set_globals` and `message` events to re-read/re-render when tool globals are populated asynchronously.
-- Result: when bridge data arrives after first paint, widgets update from fallback placeholders (`xFloor` / `Here's what I found`) to real tool output.
+- Frontend runtime is **bridge-first**:
+  - consumes `ui/*` JSON-RPC envelopes from `postMessage`
+  - validates JSON-RPC structure before accepting payloads
+  - extracts `structuredContent` from bridge payloads
+  - uses `window.openai?.toolOutput?.structuredContent` only as compatibility fallback
+- Widget components render explicit states (`loading`, `empty`, `ready`, `error`) and no longer use misleading placeholder business content.
 
 ### Widget troubleshooting checklist
 
 If widget chrome appears but content stays at fallback defaults:
 
-1. Confirm `tools/call normalized result preview` logs include:
+1. Confirm render tool output includes:
+   - `_meta.ui.resourceUri`
    - `_meta.openai/outputTemplate`
    - non-empty `structuredContent`
 2. Confirm template URI matches the tool:
@@ -336,7 +352,7 @@ If widget chrome appears but content stays at fallback defaults:
    - `XFLOOR_WIDGET_DOMAIN`
    - `XFLOOR_WIDGET_CONNECT_DOMAINS`
    - `XFLOOR_WIDGET_RESOURCE_DOMAINS`
-4. If preview routes render but ChatGPT widget does not, capture one `tools/call normalized result preview` line and one widget resource-serve line from server logs for diffing.
+4. If preview routes render but ChatGPT widget does not, capture one raw `tools/call` response body and one widget resource-serve line from server logs for diffing.
 
 ### Active-floor precedence rules
 
