@@ -1418,3 +1418,95 @@ def test_widget_runtime_dist_is_bridge_first_and_has_openai_fallback() -> None:
     assert "window.openai" in set_js
     assert "setTimeout(hydrate" not in query_js
     assert "setTimeout(hydrate" not in set_js
+
+
+def test_tool_result_rendering_widget_success() -> None:
+    from xfloor_mcp.tool_result_rendering import decide_tool_result_rendering
+
+    decision = decide_tool_result_rendering(
+        {
+            "_meta": {
+                "ui": {"resourceUri": "ui://widget/set-active-floor-v1.html"},
+                "openai/outputTemplate": "ui://widget/set-active-floor-v1.html",
+            },
+            "structuredContent": {"floor_id": "pesedu"},
+            "content": [{"type": "text", "text": "Floor selected"}],
+        },
+        widget_support_enabled=True,
+        widget_registry={"ui://widget/set-active-floor-v1.html"},
+    )
+    assert decision.should_render_widget is True
+    assert decision.reason == "widget_render_enabled"
+
+
+def test_tool_result_rendering_malformed_ui_metadata_falls_back_to_text() -> None:
+    from xfloor_mcp.tool_result_rendering import decide_tool_result_rendering
+
+    decision = decide_tool_result_rendering(
+        {
+            "_meta": {"ui": {"resourceUri": 123}},
+            "content": [{"type": "text", "text": "Fallback text"}],
+        },
+        widget_support_enabled=True,
+        widget_registry={"ui://widget/query-current-floor-v1.html"},
+    )
+    assert decision.should_render_widget is False
+    assert decision.reason == "missing_ui_metadata"
+    assert decision.fallback_text == "Fallback text"
+
+
+def test_tool_result_rendering_widget_unsupported_falls_back_to_text() -> None:
+    from xfloor_mcp.tool_result_rendering import decide_tool_result_rendering
+
+    decision = decide_tool_result_rendering(
+        {
+            "_meta": {"ui": {"resourceUri": "ui://widget/query-current-floor-v1.html"}},
+            "content": [{"type": "text", "text": "Fallback query text"}],
+        },
+        widget_support_enabled=False,
+    )
+    assert decision.should_render_widget is False
+    assert decision.reason == "widget_support_disabled"
+    assert decision.fallback_text == "Fallback query text"
+
+
+def test_tool_result_rendering_preserves_text_and_widget_together() -> None:
+    from xfloor_mcp.tool_result_rendering import decide_tool_result_rendering
+
+    decision = decide_tool_result_rendering(
+        {
+            "_meta": {"ui": {"resourceUri": "ui://widget/query-current-floor-v1.html"}},
+            "structuredContent": {"answer": "Mr. Girish Prabhu"},
+            "content": [{"type": "text", "text": "Answer text"}],
+        },
+        widget_support_enabled=True,
+        widget_registry={"ui://widget/query-current-floor-v1.html"},
+    )
+    assert decision.should_render_widget is True
+    assert decision.structured_content["answer"] == "Mr. Girish Prabhu"
+    assert decision.fallback_text == "Answer text"
+
+
+def test_tool_result_rendering_multiple_tool_calls_supported() -> None:
+    from xfloor_mcp.tool_result_rendering import decide_tool_result_rendering
+
+    results = [
+        {
+            "_meta": {"ui": {"resourceUri": "ui://widget/set-active-floor-v1.html"}},
+            "content": [{"type": "text", "text": "Set active"}],
+        },
+        {
+            "_meta": {"ui": {"resourceUri": "ui://widget/query-current-floor-v1.html"}},
+            "content": [{"type": "text", "text": "Query answer"}],
+            "structuredContent": {"answer": "A"},
+        },
+    ]
+    decisions = [
+        decide_tool_result_rendering(
+            item,
+            widget_support_enabled=True,
+            widget_registry={"ui://widget/set-active-floor-v1.html", "ui://widget/query-current-floor-v1.html"},
+        )
+        for item in results
+    ]
+    assert all(d.should_render_widget for d in decisions)

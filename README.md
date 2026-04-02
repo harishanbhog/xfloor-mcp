@@ -348,6 +348,17 @@ If widget chrome appears but content stays at fallback defaults:
    - `XFLOOR_WIDGET_RESOURCE_DOMAINS`
 4. If preview routes render but ChatGPT widget does not, capture one raw `tools/call` response body and one widget resource-serve line from server logs for diffing.
 
+### Client-side tool-result normalization helper
+
+For ChatGPT-style client integrations, use `xfloor_mcp.tool_result_rendering.decide_tool_result_rendering(...)` to:
+
+- preserve `_meta.ui.resourceUri`, `_meta["openai/outputTemplate"]`, `structuredContent`, and `content`
+- explicitly decide widget-vs-text fallback behavior
+- emit diagnostic logs:
+  - `tool result contained UI metadata`
+  - `widget registry lookup failed`
+  - `rendering fallback text because widget unsupported`
+
 ### Active-floor precedence rules
 
 Current-floor tools resolve the floor in this order:
