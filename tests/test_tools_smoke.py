@@ -243,18 +243,8 @@ class TestToolsSmoke:
         assert get_type_hints(mcp.registry["xfloor_clear_active_floor"])["input"] is XFloorClearActiveFloorInput
         assert get_type_hints(mcp.registry["xfloor_query_current_floor"])["input"] is XFloorQueryCurrentFloorInput
         assert get_type_hints(mcp.registry["xfloor_post_event_to_current_floor"])["input"] is XFloorPostEventToCurrentFloorInput
-        assert "xfloor_render_set_active_floor_widget" in mcp.registry
-        assert "xfloor_render_query_current_floor_widget" in mcp.registry
-        assert mcp.tool_kwargs["xfloor_render_set_active_floor_widget"]["annotations"]["ui/resourceUri"] == SET_ACTIVE_FLOOR_WIDGET_URI
-        assert mcp.tool_kwargs["xfloor_render_set_active_floor_widget"]["annotations"]["openai/outputTemplate"] == SET_ACTIVE_FLOOR_WIDGET_URI
-        assert (
-            mcp.tool_kwargs["xfloor_render_query_current_floor_widget"]["annotations"]["ui/resourceUri"]
-            == "ui://widget/query-current-floor-v1.html"
-        )
-        assert (
-            mcp.tool_kwargs["xfloor_render_query_current_floor_widget"]["annotations"]["openai/outputTemplate"]
-            == "ui://widget/query-current-floor-v1.html"
-        )
+        assert "xfloor_render_set_active_floor_widget" not in mcp.registry
+        assert "xfloor_render_query_current_floor_widget" not in mcp.registry
         assert "xfloor_query_memory" not in mcp.registry
         assert "xfloor_create_event" not in mcp.registry
         assert "xfloor_recent_events" not in mcp.registry
@@ -269,6 +259,8 @@ class TestToolsSmoke:
             "readOnlyHint": False,
             "openWorldHint": False,
             "destructiveHint": False,
+            "openai/outputTemplate": SET_ACTIVE_FLOOR_WIDGET_URI,
+            "ui/resourceUri": SET_ACTIVE_FLOOR_WIDGET_URI,
         }
         assert mcp.tool_kwargs["xfloor_clear_active_floor"]["annotations"] == {
             "readOnlyHint": False,
@@ -279,6 +271,8 @@ class TestToolsSmoke:
             "readOnlyHint": True,
             "openWorldHint": False,
             "destructiveHint": False,
+            "openai/outputTemplate": "ui://widget/query-current-floor-v1.html",
+            "ui/resourceUri": "ui://widget/query-current-floor-v1.html",
         }
         assert mcp.tool_kwargs["xfloor_post_event_to_current_floor"]["annotations"] == {
             "readOnlyHint": False,
@@ -517,6 +511,8 @@ class TestToolsSmoke:
         assert set_result["content"][0]["type"] == "text"
         assert set_result["content"][0]["text"] == set_result["message"]
         assert "@phari" in set_result["content"][0]["text"]
+        assert set_result["_meta"]["openai/outputTemplate"] == SET_ACTIVE_FLOOR_WIDGET_URI
+        assert set_result["_meta"]["ui"]["resourceUri"] == SET_ACTIVE_FLOOR_WIDGET_URI
         assert set_result["structuredContent"]["floor_id"] == "phari"
         assert len(set_result["structuredContent"]["blocks"]) == 2
         assert query_result["floor_id"] == "phari"
@@ -524,29 +520,10 @@ class TestToolsSmoke:
         assert "**Related floors**" in query_result["answer"]
         assert "https://phari.xfloor.ai" in query_result["answer"]
         assert query_result["related_floors_text"] == ["@Phari"]
+        assert query_result["_meta"]["openai/outputTemplate"] == "ui://widget/query-current-floor-v1.html"
+        assert query_result["_meta"]["ui"]["resourceUri"] == "ui://widget/query-current-floor-v1.html"
         assert query_result["normalization_meta"]["malformedItemTextCount"] == 0
         assert post_result["posted"] is True
-
-        render_set_result = await mcp.registry["xfloor_render_set_active_floor_widget"](
-            {
-                "floor_ref": set_result["structuredContent"]["floor_ref"],
-                "floor_id": set_result["structuredContent"]["floor_id"],
-                "floor_title": set_result["structuredContent"]["floor_title"],
-                "floor_description": set_result["structuredContent"]["floor_description"],
-                "floor_logo_url": set_result["structuredContent"]["floor_logo_url"],
-                "blocks": set_result["structuredContent"]["blocks"],
-            },
-            None,
-        )
-        assert render_set_result["_meta"]["openai/outputTemplate"] == SET_ACTIVE_FLOOR_WIDGET_URI
-        assert render_set_result["_meta"]["ui"]["resourceUri"] == SET_ACTIVE_FLOOR_WIDGET_URI
-
-        render_query_result = await mcp.registry["xfloor_render_query_current_floor_widget"](
-            query_result["structuredContent"],
-            None,
-        )
-        assert render_query_result["_meta"]["openai/outputTemplate"] == "ui://widget/query-current-floor-v1.html"
-        assert render_query_result["_meta"]["ui"]["resourceUri"] == "ui://widget/query-current-floor-v1.html"
 
     @pytest.mark.asyncio
     async def test_post_event_to_current_floor_uses_description_as_title_and_omits_blank_block_id(self) -> None:

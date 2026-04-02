@@ -284,23 +284,17 @@ This repo now exposes an additive **v1 ChatGPT-facing MCP surface** on top of th
    - Clears active Floor context for the current conversation/session.
    - Use when the user explicitly asks to reset or stop using the current Floor.
 
-### Render tools (Apps SDK / MCP Apps)
+### Widget ownership model (Apple-style)
 
-These tools are dedicated to widget rendering and are the canonical place for render metadata:
+Real domain tools own their widget template metadata directly (no render-only wrapper tools):
 
-1. `xfloor_render_set_active_floor_widget`
-   - Input: the `structuredContent` payload from `xfloor_set_active_floor`.
-   - Output metadata includes:
-     - `_meta.ui.resourceUri = ui://widget/set-active-floor-v1.html`
-     - `_meta["openai/outputTemplate"] = ui://widget/set-active-floor-v1.html` (compat alias)
+- `xfloor_set_active_floor` -> `ui://widget/set-active-floor-v1.html`
+- `xfloor_query_current_floor` -> `ui://widget/query-current-floor-v1.html`
 
-2. `xfloor_render_query_current_floor_widget`
-   - Input: the `structuredContent` payload from `xfloor_query_current_floor`.
-   - Output metadata includes:
-     - `_meta.ui.resourceUri = ui://widget/query-current-floor-v1.html`
-     - `_meta["openai/outputTemplate"] = ui://widget/query-current-floor-v1.html` (compat alias)
+Each tool descriptor/result includes:
 
-Data tools remain the source of truth for business data and no longer own render-template binding metadata.
+- `_meta.ui.resourceUri` (primary Apps/MCP metadata)
+- `_meta["openai/outputTemplate"]` (ChatGPT compatibility alias)
 
 ### Posting status (temporary rollback)
 
@@ -328,7 +322,7 @@ Data tools remain the source of truth for business data and no longer own render
 - OpenAI widget resources are registered at:
   - `ui://widget/set-active-floor-v1.html`
   - `ui://widget/query-current-floor-v1.html`
-- Render-tool responses carry `_meta.ui.resourceUri` (Apps-first) and `_meta.openai/outputTemplate` (ChatGPT compatibility alias).
+- Real tool responses carry `_meta.ui.resourceUri` (Apps-first) and `_meta.openai/outputTemplate` (ChatGPT compatibility alias).
 - Widget HTML shells now prefer **inline CSS/JS assets** (from `openai_widget/dist`) with fallback external asset URLs, reducing sandbox-origin fetch issues.
 - Frontend runtime is **bridge-first**:
   - consumes `ui/*` JSON-RPC envelopes from `postMessage`
@@ -341,7 +335,7 @@ Data tools remain the source of truth for business data and no longer own render
 
 If widget chrome appears but content stays at fallback defaults:
 
-1. Confirm render tool output includes:
+1. Confirm tool output includes:
    - `_meta.ui.resourceUri`
    - `_meta.openai/outputTemplate`
    - non-empty `structuredContent`

@@ -324,8 +324,8 @@ def create_http_app(settings: Settings) -> FastAPI:
                         payload = json.loads(body.decode("utf-8"))
                         tools = (((payload or {}).get("result") or {}).get("tools") or [])
                         output_template_by_tool = {
-                            "xfloor_render_set_active_floor_widget": SET_ACTIVE_FLOOR_WIDGET_URI,
-                            "xfloor_render_query_current_floor_widget": QUERY_CURRENT_FLOOR_WIDGET_URI,
+                            "xfloor_set_active_floor": SET_ACTIVE_FLOOR_WIDGET_URI,
+                            "xfloor_query_current_floor": QUERY_CURRENT_FLOOR_WIDGET_URI,
                         }
                         for tool in tools:
                             tool_name = tool.get("name")
@@ -344,10 +344,10 @@ def create_http_app(settings: Settings) -> FastAPI:
                             tool["_meta"] = meta
 
                         set_active_descriptor = next(
-                            (tool for tool in tools if tool.get("name") == "xfloor_render_set_active_floor_widget"),
+                            (tool for tool in tools if tool.get("name") == "xfloor_set_active_floor"),
                             None,
                         )
-                        logger.info("tools/list descriptor xfloor_render_set_active_floor_widget=%s", set_active_descriptor)
+                        logger.info("tools/list descriptor xfloor_set_active_floor=%s", set_active_descriptor)
                         patched_headers = {
                             key: value
                             for key, value in response.headers.items()

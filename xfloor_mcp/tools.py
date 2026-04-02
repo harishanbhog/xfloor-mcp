@@ -166,14 +166,6 @@ class QueryCurrentFloorWidgetStructuredContent(BaseModel):
     answer: str
     relatedFloors: list[WidgetRelatedFloor] = Field(default_factory=list)
 
-
-class RenderSetActiveFloorWidgetInput(SetActiveFloorWidgetStructuredContent):
-    pass
-
-
-class RenderQueryCurrentFloorWidgetInput(QueryCurrentFloorWidgetStructuredContent):
-    pass
-
 def _extract_auth_token(ctx: Any, token_override: str | None) -> str:
     """Resolve auth token from explicit input, request headers, or context var."""
 
@@ -875,6 +867,12 @@ def register_tools(mcp: Any, client: XFloorClient, settings: Settings | None = N
             "V1 narrow tool surface active: xfloor_query_memory, xfloor_create_event, xfloor_recent_events, and xfloor_wait_for_ingestion are not registered."
         )
 
+    set_active_annotations = {"readOnlyHint": False, "openWorldHint": False, "destructiveHint": False}
+    query_annotations = {"readOnlyHint": True, "openWorldHint": False, "destructiveHint": False}
+    if host_adapter and hasattr(host_adapter, "build_render_tool_annotations"):
+        set_active_annotations.update(host_adapter.build_render_tool_annotations(SET_ACTIVE_FLOOR_WIDGET_URI))
+        query_annotations.update(host_adapter.build_render_tool_annotations(QUERY_CURRENT_FLOOR_WIDGET_URI))
+
     @mcp.tool(
         name="xfloor_set_active_floor",
         description=(
@@ -887,11 +885,7 @@ def register_tools(mcp: Any, client: XFloorClient, settings: Settings | None = N
             "floor title, floor description, logo URL (if present), and top blocks. Do not reduce the response to only "
             "'active floor set' when richer details are available."
         ),
-        annotations={
-            "readOnlyHint": False,
-            "openWorldHint": False,
-            "destructiveHint": False,
-        },
+        annotations=set_active_annotations,
     )
     async def xfloor_set_active_floor(input: XFloorSetActiveFloorInput, ctx: Any = None) -> dict[str, Any]:
         resolved = resolve_floor_reference(floor_ref=input.floor_ref, floor_id=input.floor_id)
@@ -921,7 +915,7 @@ def register_tools(mcp: Any, client: XFloorClient, settings: Settings | None = N
         )
         using_default_logo = not bool(state.get("floor_logo_url"))
         core_response = build_core_set_active_floor_response(state)
-        response = core_response
+        response = host_adapter.decorate_set_active_floor_response(core_response) if host_adapter else core_response
         markdown_summary = _build_set_active_floor_markdown_card(state)
         if markdown_summary:
             response["message"] = markdown_summary
@@ -993,11 +987,7 @@ def register_tools(mcp: Any, client: XFloorClient, settings: Settings | None = N
             "If no active Floor is set, do not call this tool. "
             "When in doubt, do not call it."
         ),
-        annotations={
-            "readOnlyHint": True,
-            "openWorldHint": False,
-            "destructiveHint": False,
-        },
+        annotations=query_annotations,
     )
     async def xfloor_query_current_floor(input: XFloorQueryCurrentFloorInput, ctx: Any = None) -> dict[str, Any]:
         tool_name = "xfloor_query_current_floor"
@@ -1126,56 +1116,8 @@ def register_tools(mcp: Any, client: XFloorClient, settings: Settings | None = N
         if escape_findings:
             logger.warning("%s suspicious escape sequences findings=%s", tool_name, escape_findings)
         response = _sanitize_for_js_embedding(response)
-        return response
-
-    render_set_annotations = {"readOnlyHint": True, "openWorldHint": False, "destructiveHint": False}
-    render_query_annotations = {"readOnlyHint": True, "openWorldHint": False, "destructiveHint": False}
-    if host_adapter and hasattr(host_adapter, "build_render_tool_annotations"):
-        render_set_annotations.update(host_adapter.build_render_tool_annotations(SET_ACTIVE_FLOOR_WIDGET_URI))
-        render_query_annotations.update(host_adapter.build_render_tool_annotations(QUERY_CURRENT_FLOOR_WIDGET_URI))
-
-    @mcp.tool(
-        name="xfloor_render_set_active_floor_widget",
-        description=(
-            "Render-only tool for the set-active-floor widget. Use this after floor selection to display UI. "
-            "Provide structured floor fields directly from `xfloor_set_active_floor.structuredContent`."
-        ),
-        annotations=render_set_annotations,
-    )
-    async def xfloor_render_set_active_floor_widget(input: RenderSetActiveFloorWidgetInput, ctx: Any = None) -> dict[str, Any]:
-        structured = SetActiveFloorWidgetStructuredContent.model_validate(
-            input.model_dump() if hasattr(input, "model_dump") else input
-        )
-        response: dict[str, Any] = {
-            "content": [{"type": "text", "text": f"Rendering active floor: @{structured.floor_ref}"}],
-            "structuredContent": structured.model_dump(),
-        }
-        if host_adapter and hasattr(host_adapter, "build_render_tool_result_meta"):
-            response["_meta"] = host_adapter.build_render_tool_result_meta(SET_ACTIVE_FLOOR_WIDGET_URI)
-        else:
-            response["_meta"] = {"openai/outputTemplate": SET_ACTIVE_FLOOR_WIDGET_URI}
-        return response
-
-    @mcp.tool(
-        name="xfloor_render_query_current_floor_widget",
-        description=(
-            "Render-only tool for query results. Use this after `xfloor_query_current_floor` and pass "
-            "`structuredContent` as input to display the widget."
-        ),
-        annotations=render_query_annotations,
-    )
-    async def xfloor_render_query_current_floor_widget(input: RenderQueryCurrentFloorWidgetInput, ctx: Any = None) -> dict[str, Any]:
-        structured = QueryCurrentFloorWidgetStructuredContent.model_validate(
-            input.model_dump() if hasattr(input, "model_dump") else input
-        )
-        response: dict[str, Any] = {
-            "content": [{"type": "text", "text": "Rendering floor query widget"}],
-            "structuredContent": structured.model_dump(),
-        }
-        if host_adapter and hasattr(host_adapter, "build_render_tool_result_meta"):
-            response["_meta"] = host_adapter.build_render_tool_result_meta(QUERY_CURRENT_FLOOR_WIDGET_URI)
-        else:
-            response["_meta"] = {"openai/outputTemplate": QUERY_CURRENT_FLOOR_WIDGET_URI}
+        if host_adapter and hasattr(host_adapter, "decorate_query_current_floor_response"):
+            response = host_adapter.decorate_query_current_floor_response(response)
         return response
 
     @mcp.tool(
