@@ -3,6 +3,15 @@ import { createRoot } from 'react-dom/client';
 import { getQuerySnapshot, initializeWidgetBridge, subscribeQuery } from './runtime';
 import './styles.css';
 
+function markdownToHtml(text: string): string {
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/\n/g, '<br />');
+}
+
 function App() {
   const state = React.useSyncExternalStore(subscribeQuery, getQuerySnapshot, getQuerySnapshot);
 
@@ -12,11 +21,12 @@ function App() {
 
   const data = state.data;
   const answer = data.answer?.trim() || '';
+  const answerHtml = markdownToHtml(answer);
   const related = Array.isArray(data.relatedFloors) ? data.relatedFloors.slice(0, 6) : [];
 
   return (
     <section className="card">
-      <div className="answer">{answer}</div>
+      <div className="answer" dangerouslySetInnerHTML={{ __html: answerHtml }} />
       {related.length ? (
         <div className="links">
           {related.map((item, index) => {

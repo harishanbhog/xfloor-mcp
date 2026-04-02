@@ -13,6 +13,10 @@ from .constants import QUERY_CURRENT_FLOOR_WIDGET_URI, SET_ACTIVE_FLOOR_WIDGET_U
 from .widget_templates import build_floor_summary_widget_html, build_query_floor_answer_widget_html
 
 logger = logging.getLogger(__name__)
+DEFAULT_WIDGET_RESOURCE_DOMAINS = [
+    "https://persistent.oaistatic.com",
+    "https://d2e5822u5ecuq8.cloudfront.net",
+]
 
 
 @dataclass
@@ -63,7 +67,8 @@ class OpenAIHostAdapter:
                 + ([self.settings.xfloor_base_url] if self.settings else [])
             )
         )
-        resource_domains = self.settings.xfloor_widget_resource_domains if self.settings else ["https://persistent.oaistatic.com"]
+        configured = self.settings.xfloor_widget_resource_domains if self.settings else DEFAULT_WIDGET_RESOURCE_DOMAINS
+        resource_domains = list(dict.fromkeys(configured + DEFAULT_WIDGET_RESOURCE_DOMAINS))
 
         ui_meta: dict[str, Any] = {
             "csp": {
@@ -120,7 +125,8 @@ class OpenAIHostAdapter:
                 + ([self.settings.xfloor_base_url] if self.settings else [])
             )
         )
-        resource_domains = self.settings.xfloor_widget_resource_domains if self.settings else ["https://persistent.oaistatic.com"]
+        configured = self.settings.xfloor_widget_resource_domains if self.settings else DEFAULT_WIDGET_RESOURCE_DOMAINS
+        resource_domains = list(dict.fromkeys(configured + DEFAULT_WIDGET_RESOURCE_DOMAINS))
         ui_meta: dict[str, Any] = {
             "csp": {
                 "connectDomains": connect_domains,

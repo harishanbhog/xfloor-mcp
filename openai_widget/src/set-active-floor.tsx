@@ -34,7 +34,9 @@ function App() {
         </div>
       ) : null}
       {floorUrl ? (
-        <p style={{ marginTop: 12 }}><a className="link" href={floorUrl} target="_blank" rel="noreferrer">Open floor</a></p>
+        <div className="open-floor-row">
+          <a className="open-floor-btn" href={floorUrl} target="_blank" rel="noreferrer">Open floor</a>
+        </div>
       ) : null}
     </section>
   );

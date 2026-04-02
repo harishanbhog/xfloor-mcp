@@ -324,12 +324,14 @@ Each tool descriptor/result includes:
   - `ui://widget/query-current-floor-v1.html`
 - Real tool responses carry `_meta.ui.resourceUri` (Apps-first) and `_meta.openai/outputTemplate` (ChatGPT compatibility alias).
 - Widget HTML shells now prefer **inline CSS/JS assets** (from `openai_widget/dist`) with fallback external asset URLs, reducing sandbox-origin fetch issues.
+- Widget CSP resource domains include OpenAI static assets and xFloor logo CloudFront host so floor logos can render in sandboxed cards.
 - Frontend runtime is **bridge-first**:
   - consumes `ui/*` JSON-RPC envelopes from `postMessage`
   - validates JSON-RPC structure before accepting payloads
   - extracts `structuredContent` from bridge payloads
   - uses `window.openai?.toolOutput?.structuredContent` only as compatibility fallback (including `openai:set_globals` compatibility event updates)
 - Widget components render explicit states (`loading`, `empty`, `ready`, `error`) and no longer use misleading placeholder business content.
+- Query answer text supports lightweight markdown emphasis rendering (for `**bold**`) in the widget body.
 
 ### Widget troubleshooting checklist
 

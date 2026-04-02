@@ -22,6 +22,14 @@
     var api = window.openai || {};
     return window.structuredContent || window.__structuredContent || (api.toolOutput && api.toolOutput.structuredContent) || {};
   }
+  function markdownToHtml(text) {
+    return String(text || '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+      .replace(/\n/g, '<br />');
+  }
   function render(data) {
     var root = document.getElementById('root');
     if (!root) return;
@@ -30,6 +38,7 @@
       return;
     }
     var answer = (data.answer || '').trim();
+    var answerHtml = markdownToHtml(answer);
     var related = Array.isArray(data.relatedFloors) ? data.relatedFloors.slice(0, 6) : [];
     var links = related.map(function (item) {
       var floorId = String((item && item.floor_id) || '').trim();
@@ -39,7 +48,7 @@
       if (label.charAt(0) !== '@') label = '@' + label;
       return '<a class="link" href="https://' + floorId + '.xfloor.ai" target="_blank" rel="noreferrer">' + label + '</a>';
     }).join('');
-    root.innerHTML = '<section class="card"><div class="answer">' + answer + '</div>' + (links ? '<div class="links">' + links + '</div>' : '') + '</section>';
+    root.innerHTML = '<section class="card"><div class="answer">' + answerHtml + '</div>' + (links ? '<div class="links">' + links + '</div>' : '') + '</section>';
   }
   window.addEventListener('message', function (event) {
     var payload = parseUiMessage(event.data);

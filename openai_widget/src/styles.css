@@ -10,3 +10,5 @@ body { margin: 0; padding: 12px; font-family: Inter, ui-sans-serif, system-ui, -
 .link { font-size: 12px; text-decoration: none; border: 1px solid #e2e8f0; border-radius: 999px; padding: 6px 10px; color: #0f172a; background: #f8fafc; }
 .logo { width: 54px; height: 54px; border-radius: 12px; border: 1px solid #e5e7eb; object-fit: cover; }
 .row { display: flex; gap: 12px; }
+.open-floor-row { display: flex; justify-content: flex-end; margin-top: 12px; }
+.open-floor-btn { font-size: 12px; text-decoration: none; border: 1px solid #dbeafe; border-radius: 999px; padding: 7px 12px; color: #1e3a8a; background: #eff6ff; }

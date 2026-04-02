@@ -228,6 +228,7 @@ class TestToolsSmoke:
         assert "openai/widgetDomain" in widget_resource["contents"][0]["_meta"]
         assert "connectDomains" in widget_resource["contents"][0]["_meta"]["openai/widgetCSP"]
         assert "resourceDomains" in widget_resource["contents"][0]["_meta"]["openai/widgetCSP"]
+        assert "https://d2e5822u5ecuq8.cloudfront.net" in widget_resource["contents"][0]["_meta"]["openai/widgetCSP"]["resourceDomains"]
         assert "connect_domains" in widget_resource["contents"][0]["_meta"]["openai/widgetCSP"]
         assert "resource_domains" in widget_resource["contents"][0]["_meta"]["openai/widgetCSP"]
         assert "ui" in widget_resource["contents"][0]["_meta"]
@@ -1418,6 +1419,8 @@ def test_widget_runtime_dist_is_bridge_first_and_has_openai_fallback() -> None:
     assert "window.openai" in set_js
     assert "openai:set_globals" in query_js
     assert "openai:set_globals" in set_js
+    assert "markdownToHtml" in query_js
+    assert "open-floor-btn" in set_js
     assert "setTimeout(hydrate" not in query_js
     assert "setTimeout(hydrate" not in set_js
 

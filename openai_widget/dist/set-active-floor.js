@@ -42,7 +42,7 @@
         '</div>' +
         (data.floor_description ? '<p class="desc">' + data.floor_description + '</p>' : '') +
         (chips ? '<div class="chips">' + chips + '</div>' : '') +
-        (floorUrl ? '<p style="margin-top:12px"><a class="link" href="' + floorUrl + '" target="_blank" rel="noreferrer">Open floor</a></p>' : '') +
+        (floorUrl ? '<div class="open-floor-row"><a class="open-floor-btn" href="' + floorUrl + '" target="_blank" rel="noreferrer">Open floor</a></div>' : '') +
       '</section>';
   }
   window.addEventListener('message', function (event) {
