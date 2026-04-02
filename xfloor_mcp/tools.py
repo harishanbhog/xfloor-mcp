@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import logging
 import re
 from typing import Any
@@ -241,6 +242,17 @@ def _compact(data: Any) -> dict[str, Any]:
     if isinstance(data, dict):
         return data
     return {"data": data}
+
+
+def _text_debug_signature(value: Any, *, preview_len: int = 200) -> dict[str, Any]:
+    text = "" if value is None else str(value)
+    encoded = text.encode("utf-8", errors="replace")
+    return {
+        "len": len(text),
+        "sha256": hashlib.sha256(encoded).hexdigest(),
+        "has_backslash": "\\" in text,
+        "preview_unicode_escape": text[:preview_len].encode("unicode_escape", errors="replace").decode("ascii", errors="replace"),
+    }
 
 
 def _extract_events_list(events_payload: dict[str, Any]) -> list[dict[str, Any]]:
@@ -976,6 +988,11 @@ def register_tools(mcp: Any, client: XFloorClient, settings: Settings | None = N
             structured_content["resultCount"],
         )
         base_answer_text = structured_content.get("answer") or "Here’s what I found."
+        logger.info(
+            "%s answer diagnostics base_answer=%s",
+            tool_name,
+            _text_debug_signature(base_answer_text),
+        )
         related_floor_handles: list[str] = []
         for floor_item in structured_content["relevantFloors"][:5]:
             floor_name = (floor_item.get("floorName") or "").strip()
@@ -984,6 +1001,11 @@ def register_tools(mcp: Any, client: XFloorClient, settings: Settings | None = N
             if chosen:
                 related_floor_handles.append(f"@{chosen.lstrip('@')}")
         markdown_answer = _build_query_floor_markdown_answer(base_answer_text, structured_content["relevantFloors"])
+        logger.info(
+            "%s markdown diagnostics markdown_answer=%s",
+            tool_name,
+            _text_debug_signature(markdown_answer),
+        )
         response = {
             "floor_id": floor["floor_id"],
             "floor_ref": floor["floor_ref"],
@@ -1008,6 +1030,15 @@ def register_tools(mcp: Any, client: XFloorClient, settings: Settings | None = N
                 ],
             },
         }
+        try:
+            structured_json = json.dumps(response.get("structuredContent") or {}, ensure_ascii=False)
+        except Exception:  # noqa: BLE001
+            structured_json = ""
+        logger.info(
+            "%s structured_content diagnostics payload=%s",
+            tool_name,
+            _text_debug_signature(structured_json, preview_len=300),
+        )
         if host_adapter and hasattr(host_adapter, "decorate_query_current_floor_response"):
             response = host_adapter.decorate_query_current_floor_response(response)
         return response
