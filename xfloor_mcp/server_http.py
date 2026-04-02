@@ -324,7 +324,39 @@ def create_http_app(settings: Settings) -> FastAPI:
                             body_text[:500],
                         )
                         try:
-                            json.loads(body_text)
+                            payload = json.loads(body_text)
+                            result = payload.get("result") if isinstance(payload, dict) else None
+                            content = result.get("content") if isinstance(result, dict) else None
+                            first_text = None
+                            if (
+                                isinstance(content, list)
+                                and content
+                                and isinstance(content[0], dict)
+                                and isinstance(content[0].get("text"), str)
+                            ):
+                                first_text = content[0].get("text")
+                            if isinstance(first_text, str):
+                                try:
+                                    parsed_text_payload = json.loads(first_text)
+                                except Exception:  # noqa: BLE001
+                                    parsed_text_payload = None
+                                if isinstance(parsed_text_payload, dict) and parsed_text_payload.get("_meta"):
+                                    logger.info(
+                                        "tools/call normalized text payload request_id=%s parsed_keys=%s",
+                                        request_id,
+                                        sorted(parsed_text_payload.keys()),
+                                    )
+                                    payload["result"] = parsed_text_payload
+                                    passthrough_headers = {
+                                        key: value
+                                        for key, value in response.headers.items()
+                                        if key.lower() not in {"content-length", "transfer-encoding"}
+                                    }
+                                    response = JSONResponse(
+                                        status_code=response.status_code,
+                                        content=payload,
+                                        headers=passthrough_headers,
+                                    )
                         except Exception as exc:  # noqa: BLE001
                             logger.exception("tools/call response json decode failed request_id=%s error=%s", request_id, exc)
                     else:
