@@ -255,6 +255,19 @@ def _text_debug_signature(value: Any, *, preview_len: int = 200) -> dict[str, An
     }
 
 
+def _sanitize_for_js_embedding(value: Any) -> Any:
+    """Defensively escape strings for hosts that interpolate payload text into JS string literals."""
+
+    if isinstance(value, str):
+        sanitized = re.sub(r'\\(?![\\/"bfnrtu])', r"\\\\", value)
+        return sanitized.replace("\u2028", "\\u2028").replace("\u2029", "\\u2029")
+    if isinstance(value, list):
+        return [_sanitize_for_js_embedding(item) for item in value]
+    if isinstance(value, dict):
+        return {key: _sanitize_for_js_embedding(item) for key, item in value.items()}
+    return value
+
+
 def _extract_events_list(events_payload: dict[str, Any]) -> list[dict[str, Any]]:
     events = events_payload.get("events")
     if isinstance(events, list):
@@ -873,6 +886,7 @@ def register_tools(mcp: Any, client: XFloorClient, settings: Settings | None = N
             "xfloor_set_active_floor response payload diagnostics payload=%s",
             _text_debug_signature(response_json, preview_len=300),
         )
+        response = _sanitize_for_js_embedding(response)
         template_uri = ((response.get("_meta") or {}).get("openai/outputTemplate")) if isinstance(response, dict) else None
         logger.info(
             "xfloor_set_active_floor response prepared floor_id=%s blocks=%s widget_uri=%s template_uri=%s template_uri_match=%s default_logo=%s logo_normalized=%s fallback_mode=minimal_widget_diagnostics",
@@ -1054,6 +1068,7 @@ def register_tools(mcp: Any, client: XFloorClient, settings: Settings | None = N
             tool_name,
             _text_debug_signature(structured_json, preview_len=300),
         )
+        response = _sanitize_for_js_embedding(response)
         if host_adapter and hasattr(host_adapter, "decorate_query_current_floor_response"):
             response = host_adapter.decorate_query_current_floor_response(response)
         return response
