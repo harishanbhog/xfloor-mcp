@@ -343,17 +343,32 @@ def create_http_app(settings: Settings) -> FastAPI:
                                 except Exception:  # noqa: BLE001
                                     parsed_text_payload = None
                                 if isinstance(parsed_text_payload, dict) and parsed_text_payload.get("_meta"):
+                                    normalized_result: dict[str, Any] = {}
+                                    content_items = parsed_text_payload.get("content")
+                                    normalized_result["content"] = content_items if isinstance(content_items, list) else []
+                                    structured_content = parsed_text_payload.get("structuredContent")
+                                    if not isinstance(structured_content, dict):
+                                        structured_content = {
+                                            key: value
+                                            for key, value in parsed_text_payload.items()
+                                            if key not in {"_meta", "content", "isError"}
+                                        }
+                                    normalized_result["structuredContent"] = structured_content
+                                    normalized_result["_meta"] = parsed_text_payload.get("_meta")
+                                    if "isError" in parsed_text_payload:
+                                        normalized_result["isError"] = bool(parsed_text_payload.get("isError"))
                                     logger.info(
-                                        "tools/call normalized text payload request_id=%s parsed_keys=%s",
+                                        "tools/call normalized text payload request_id=%s parsed_keys=%s normalized_keys=%s",
                                         request_id,
                                         sorted(parsed_text_payload.keys()),
+                                        sorted(normalized_result.keys()),
                                     )
                                     logger.info(
                                         "tools/call normalized result preview request_id=%s result_start=%r",
                                         request_id,
-                                        json.dumps(parsed_text_payload, ensure_ascii=False)[:500],
+                                        json.dumps(normalized_result, ensure_ascii=False)[:500],
                                     )
-                                    payload["result"] = parsed_text_payload
+                                    payload["result"] = normalized_result
                                     passthrough_headers = {
                                         key: value
                                         for key, value in response.headers.items()
