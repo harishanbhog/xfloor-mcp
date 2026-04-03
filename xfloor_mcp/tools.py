@@ -201,15 +201,6 @@ def _extract_auth_token(ctx: Any, token_override: str | None) -> str:
     raise ValueError("Missing Bearer auth token. Set Authorization header or provide auth_token.")
 
 
-def _extract_auth_token_optional(ctx: Any, token_override: str | None) -> str | None:
-    """Best-effort auth token resolution used by tools that can run without auth."""
-
-    try:
-        return _extract_auth_token(ctx, token_override)
-    except ValueError:
-        return None
-
-
 def _require_context_user_id() -> str:
     user_id = get_user_id()
     if not user_id:
@@ -906,15 +897,12 @@ def register_tools(mcp: Any, client: XFloorClient, settings: Settings | None = N
             "floor_logo_url": None,
             "floor_blocks": [],
         }
-        token = _extract_auth_token_optional(ctx, None)
-        if token:
-            try:
-                floor_info_result = await client.get_floor_info(token, floor_id=resolved["floor_id"])
-                metadata = _extract_floor_metadata(_compact(floor_info_result), resolved["floor_ref"])
-            except Exception as exc:  # noqa: BLE001
-                logger.warning("Active floor metadata fetch skipped due to error: %s", exc, exc_info=True)
-        else:
-            logger.info("Active floor metadata fetch skipped: no auth token resolved.")
+        try:
+            token = _extract_auth_token(ctx, None)
+            floor_info_result = await client.get_floor_info(token, floor_id=resolved["floor_id"])
+            metadata = _extract_floor_metadata(_compact(floor_info_result), resolved["floor_ref"])
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Active floor metadata fetch skipped due to error: %s", exc, exc_info=True)
         state = set_active_floor_state(
             floor_id=resolved["floor_id"],
             floor_ref=resolved["floor_ref"],
