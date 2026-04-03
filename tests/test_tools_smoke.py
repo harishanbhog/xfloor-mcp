@@ -39,6 +39,8 @@ if HAS_DEPS:
         set_active_floor_id,
         set_app_id,
         set_auth_token,
+        set_oauth_issuer,
+        set_oauth_subject,
         set_user_id,
         set_xfloor_service_token,
     )
@@ -203,6 +205,8 @@ class TestToolsSmoke:
         clear_identity_cache()
         set_auth_mode(None)
         set_xfloor_service_token(None)
+        set_oauth_issuer(None)
+        set_oauth_subject(None)
 
     @pytest.mark.asyncio
     async def test_tools_registered_with_expected_inputs(self) -> None:
@@ -458,6 +462,8 @@ class TestToolsSmoke:
         set_auth_mode("oauth")
         set_auth_token("ctx-token")
         set_xfloor_service_token("ctx-token")
+        set_oauth_issuer("https://issuer.example/")
+        set_oauth_subject("auth0|ctx-user")
         set_user_id("ctx-user")
         set_app_id("ctx-app")
         set_active_floor_id(None)
@@ -538,6 +544,8 @@ class TestToolsSmoke:
         set_auth_mode("oauth")
         set_auth_token("ctx-token")
         set_xfloor_service_token("ctx-token")
+        set_oauth_issuer("https://issuer.example/")
+        set_oauth_subject("auth0|ctx-user")
         set_user_id("ctx-user")
         set_app_id("ctx-app")
         set_active_floor_id(None)
@@ -597,6 +605,8 @@ class TestToolsSmoke:
         set_auth_mode("oauth")
         set_auth_token("ctx-token")
         set_xfloor_service_token("ctx-token")
+        set_oauth_issuer("https://issuer.example/")
+        set_oauth_subject("auth0|ctx-user")
         set_user_id("ctx-user")
         set_app_id("ctx-app")
         set_active_floor_id(None)
@@ -630,7 +640,7 @@ class TestToolsSmoke:
 
         assert result["accepted"] is False
         assert result["posted"] is False
-        assert "requires OAuth-authenticated requests" in result["message"]
+        assert "requires a verified OAuth identity" in result["message"]
         
     @pytest.mark.asyncio
     async def test_post_event_to_current_floor_uses_service_token_in_oauth_mode(self) -> None:
@@ -638,6 +648,8 @@ class TestToolsSmoke:
         set_auth_mode("oauth")
         set_auth_token("inbound-auth0-token")
         set_xfloor_service_token("xfloor-service-token")
+        set_oauth_issuer("https://issuer.example/")
+        set_oauth_subject("auth0|ctx-user")
         set_user_id("ctx-user")
         set_app_id("ctx-app")
         set_active_floor_id(None)
@@ -932,7 +944,7 @@ def test_http_middleware_noauth_headers_continue_to_work(monkeypatch: pytest.Mon
     assert payload["session_key"] == "session-1"
     assert payload["oauth_issuer"] is None
     assert payload["oauth_subject"] is None
-    assert payload["service_token"] == "noauth-token"
+    assert payload["service_token"] is None
 
 
 def _encode_stub_jwt(claims: dict[str, Any]) -> str:
@@ -1325,8 +1337,11 @@ def test_oauth_protected_resource_falls_back_to_oauth_resource_when_audience_mis
 async def test_current_floor_tools_continue_to_work_with_oauth_resolved_user() -> None:
     clear_identity_cache()
     mcp = TestToolsSmoke._FakeMCP()
+    set_auth_mode("oauth")
     set_auth_token("auth0-inbound-token")
     set_xfloor_service_token("xfloor-service-token")
+    set_oauth_issuer("https://issuer.example/")
+    set_oauth_subject("auth0|demo-user")
     set_user_id("oauth-dev-user")
     set_app_id("oauth-app")
     set_active_floor_id(None)

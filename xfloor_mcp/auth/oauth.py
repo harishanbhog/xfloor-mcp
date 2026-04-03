@@ -342,7 +342,7 @@ def _resolve_noauth_identity(headers: Mapping[str, str], settings: Settings) -> 
     return RequestIdentity(
         auth_mode="noauth",
         auth_token=token,
-        service_token=token,
+        service_token=settings.xfloor_default_auth_token,
         user_id=user_id,
         app_id=app_id,
         active_floor_id=active_floor_id,

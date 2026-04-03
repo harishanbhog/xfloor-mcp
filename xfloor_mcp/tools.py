@@ -13,7 +13,15 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from .active_floor_state import clear_active_floor_state, get_active_floor_state, resolve_floor_reference, set_active_floor_state
 from .core.active_floor_response import build_core_set_active_floor_response
 from .hosts.openai.constants import QUERY_CURRENT_FLOOR_WIDGET_URI, SET_ACTIVE_FLOOR_WIDGET_URI  # backwards-compatible re-export
-from .request_context import get_active_floor_id, get_auth_mode, get_auth_token, get_user_id, get_xfloor_service_token
+from .request_context import (
+    get_active_floor_id,
+    get_auth_mode,
+    get_auth_token,
+    get_oauth_issuer,
+    get_oauth_subject,
+    get_user_id,
+    get_xfloor_service_token,
+)
 from .settings import Settings
 from .xfloor_client import XFloorClient
 
@@ -1147,11 +1155,12 @@ def register_tools(mcp: Any, client: XFloorClient, settings: Settings | None = N
     async def xfloor_post_event_to_current_floor(input: XFloorPostEventToCurrentFloorInput, ctx: Any = None) -> dict[str, Any]:
         tool_name = "xfloor_post_event_to_current_floor"
         raw_input = input.model_dump() if hasattr(input, "model_dump") else input
-        if get_auth_mode() != "oauth":
+        verified_identity_present = bool(get_oauth_issuer() and get_oauth_subject())
+        if not verified_identity_present:
             return {
                 "accepted": False,
                 "posted": False,
-                "message": "xfloor_post_event_to_current_floor requires OAuth-authenticated requests.",
+                "message": "xfloor_post_event_to_current_floor requires a verified OAuth identity.",
             }
         token = _extract_auth_token(ctx, None)
         try:
