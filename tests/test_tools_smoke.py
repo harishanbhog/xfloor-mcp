@@ -455,7 +455,9 @@ class TestToolsSmoke:
     @pytest.mark.asyncio
     async def test_set_active_floor_stores_state_and_current_floor_tools_use_it(self) -> None:
         mcp = self._FakeMCP()
+        set_auth_mode("oauth")
         set_auth_token("ctx-token")
+        set_xfloor_service_token("ctx-token")
         set_user_id("ctx-user")
         set_app_id("ctx-app")
         set_active_floor_id(None)
@@ -533,7 +535,9 @@ class TestToolsSmoke:
     @pytest.mark.asyncio
     async def test_post_event_to_current_floor_uses_description_as_title_and_omits_blank_block_id(self) -> None:
         mcp = self._FakeMCP()
+        set_auth_mode("oauth")
         set_auth_token("ctx-token")
+        set_xfloor_service_token("ctx-token")
         set_user_id("ctx-user")
         set_app_id("ctx-app")
         set_active_floor_id(None)
@@ -575,9 +579,24 @@ class TestToolsSmoke:
         assert clear_result["cleared"] is True
 
     @pytest.mark.asyncio
+    async def test_set_active_floor_works_without_auth_token(self) -> None:
+        mcp = self._FakeMCP()
+        set_auth_mode(None)
+        set_auth_token(None)
+        set_user_id("ctx-user")
+        set_app_id("ctx-app")
+        register_tools(mcp=mcp, client=SimpleNamespace())
+
+        result = await mcp.registry["xfloor_set_active_floor"](XFloorSetActiveFloorInput(floor_ref="@phari"), None)
+        assert result["ok"] is True
+        assert result["floor_id"] == "phari"
+
+    @pytest.mark.asyncio
     async def test_post_event_to_current_floor_marks_queue_submission_as_success(self) -> None:
         mcp = self._FakeMCP()
+        set_auth_mode("oauth")
         set_auth_token("ctx-token")
+        set_xfloor_service_token("ctx-token")
         set_user_id("ctx-user")
         set_app_id("ctx-app")
         set_active_floor_id(None)
@@ -593,6 +612,25 @@ class TestToolsSmoke:
             None,
         )
         assert result["status"] == "queued"
+
+    @pytest.mark.asyncio
+    async def test_post_event_to_current_floor_requires_oauth_mode(self) -> None:
+        mcp = self._FakeMCP()
+        set_auth_mode("noauth")
+        set_auth_token("ctx-token")
+        set_user_id("ctx-user")
+        set_app_id("ctx-app")
+        register_tools(mcp=mcp, client=SimpleNamespace())
+        await mcp.registry["xfloor_set_active_floor"](XFloorSetActiveFloorInput(floor_ref="@phari"), None)
+
+        result = await mcp.registry["xfloor_post_event_to_current_floor"](
+            XFloorPostEventToCurrentFloorInput(title="Town Hall", description="Bring questions"),
+            None,
+        )
+
+        assert result["accepted"] is False
+        assert result["posted"] is False
+        assert "requires OAuth-authenticated requests" in result["message"]
         
     @pytest.mark.asyncio
     async def test_post_event_to_current_floor_uses_service_token_in_oauth_mode(self) -> None:
