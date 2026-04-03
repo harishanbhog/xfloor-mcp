@@ -166,33 +166,47 @@ class QueryCurrentFloorWidgetStructuredContent(BaseModel):
     answer: str
     relatedFloors: list[WidgetRelatedFloor] = Field(default_factory=list)
 
-def _extract_auth_token(ctx: Any, token_override: str | None) -> str:
-    """Resolve auth token from explicit input, request headers, or context var."""
 
+def _looks_like_jwt(token: str) -> bool:
+    parts = token.split(".")
+    return len(parts) == 3
+
+
+def _extract_auth_token(ctx: Any, token_override: str | None) -> str:
     auth_mode = get_auth_mode()
     service_token = get_xfloor_service_token()
+
     if auth_mode == "oauth":
         if service_token and service_token.strip():
             return service_token.strip()
         raise ValueError("Missing xFloor service token for downstream API call in oauth mode.")
 
+    bearer_token = None
     if token_override and token_override.strip():
-        return token_override.strip()
+        bearer_token = token_override.strip()
+    else:
+        candidates = [
+            getattr(ctx, "request", None),
+            getattr(ctx, "http_request", None),
+            getattr(ctx, "raw_request", None),
+            getattr(ctx, "fastapi_request", None),
+        ]
+        for request_obj in candidates:
+            headers = getattr(request_obj, "headers", None)
+            if not headers:
+                continue
+            header = headers.get("authorization") or headers.get("Authorization")
+            if header and header.lower().startswith("bearer "):
+                bearer_token = header[7:].strip()
+                break
 
-    candidates = [
-        getattr(ctx, "request", None),
-        getattr(ctx, "http_request", None),
-        getattr(ctx, "raw_request", None),
-        getattr(ctx, "fastapi_request", None),
-    ]
+    if auth_mode == "auto" and bearer_token and _looks_like_jwt(bearer_token):
+        if service_token and service_token.strip():
+            return service_token.strip()
+        raise ValueError("Missing xFloor service token for downstream API call in auto/oauth mode.")
 
-    for request_obj in candidates:
-        headers = getattr(request_obj, "headers", None)
-        if not headers:
-            continue
-        header = headers.get("authorization") or headers.get("Authorization")
-        if header and header.lower().startswith("bearer "):
-            return header[7:].strip()
+    if bearer_token:
+        return bearer_token
 
     context_token = service_token or get_auth_token()
     if context_token:
