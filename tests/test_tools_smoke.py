@@ -1093,6 +1093,7 @@ def test_http_middleware_auto_mode_prefers_oauth_when_bearer_header_is_present(m
             XFLOOR_AUTH_MODE="auto",
             XFLOOR_OAUTH_STUB_ENABLED=True,
             XFLOOR_OAUTH_STUB_USER_ID="oauth-wins",
+            XFLOOR_DEFAULT_AUTH_TOKEN="xfloor-service-token",
             XFLOOR_DEFAULT_APP_ID="fallback-app",
         )
     )

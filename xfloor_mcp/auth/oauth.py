@@ -427,12 +427,18 @@ def resolve_request_identity(headers: Mapping[str, str], settings: Settings) -> 
             )
 
         active_floor_id = headers.get("X-XFloor-Active-Floor-Id")
+        service_token = (settings.xfloor_default_auth_token or "").strip()
+        if not service_token:
+            raise OAuthResolutionError(
+                "OAuth mode requires XFLOOR_DEFAULT_AUTH_TOKEN or XFLOOR_DEFAULT_BEARER_TOKEN for downstream xFloor API calls.",
+                status_code=500,
+            )
         verified_identity = verify_access_token(token, settings, use_stub=True)
         user_id = _resolve_cached_user_id(verified_identity, settings)
         return RequestIdentity(
             auth_mode="oauth",
             auth_token=token,
-            service_token=token,
+            service_token=service_token,
             user_id=user_id,
             app_id=app_id,
             active_floor_id=active_floor_id,
