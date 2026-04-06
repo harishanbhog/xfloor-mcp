@@ -434,7 +434,12 @@ def create_http_app(settings: Settings) -> FastAPI:
     async def oauth_authorization_server_mcp_alias() -> dict[str, Any]:
         return oauth_authorization_server_metadata(settings)
 
-    widget_dist_dir = Path(__file__).resolve().parents[1] / "openai_widget" / "dist"
+    widget_dist_candidates = [
+        Path(__file__).resolve().parents[1] / "openai_widget" / "dist",
+        Path.cwd() / "openai_widget" / "dist",
+        Path("/app/openai_widget/dist"),
+    ]
+    widget_dist_dir = next((candidate for candidate in widget_dist_candidates if candidate.exists()), widget_dist_candidates[0])
     if widget_dist_dir.exists():
         app.mount("/openai-widget", StaticFiles(directory=str(widget_dist_dir)), name="openai-widget-static")
         logger.info("Mounted OpenAI widget static assets path=/openai-widget directory=%s", widget_dist_dir)

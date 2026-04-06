@@ -30,8 +30,12 @@ def _asset_base(asset_base_url: str | None) -> str:
 
 
 def _load_inline_assets() -> tuple[str | None, str | None]:
-    repo_root = Path(__file__).resolve().parents[4]
-    dist_dir = repo_root / "openai_widget" / "dist"
+    candidates = [
+        Path(__file__).resolve().parents[4] / "openai_widget" / "dist",
+        Path.cwd() / "openai_widget" / "dist",
+        Path("/app/openai_widget/dist"),
+    ]
+    dist_dir = next((candidate for candidate in candidates if candidate.exists()), candidates[0])
     style_path = dist_dir / "assets" / "style.css"
     script_path = dist_dir / "query-current-floor.js"
 
