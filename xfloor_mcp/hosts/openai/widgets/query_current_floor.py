@@ -49,17 +49,14 @@ def _build_query_current_floor_document(*, asset_base_url: str | None = None, pr
     base = _asset_base(asset_base_url)
     script_src = f"{base}/openai-widget/query-current-floor.js" if base else "/openai-widget/query-current-floor.js"
     style_href = f"{base}/openai-widget/assets/style.css" if base else "/openai-widget/assets/style.css"
-    inline_style, inline_script = _load_inline_assets()
+    inline_style, _inline_script = _load_inline_assets()
     style_block = (
         f"<style>{inline_style}</style>"
         if inline_style
         else f"<link rel=\"stylesheet\" href=\"{style_href}\" />"
     )
-    script_block = (
-        f"<script type=\"module\">{inline_script}</script>"
-        if inline_script
-        else f"<script type=\"module\" src=\"{script_src}\"></script>"
-    )
+    # Always load JS via src so module-relative chunk imports resolve under /openai-widget.
+    script_block = f"<script type=\"module\" src=\"{script_src}\"></script>"
     return f"""<!doctype html>
 <html lang=\"en\">
   <head>
