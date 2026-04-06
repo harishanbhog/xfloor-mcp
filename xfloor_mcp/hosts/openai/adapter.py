@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import logging
 import inspect
+import hashlib
 from dataclasses import dataclass
 from typing import Any
+from urllib.parse import urlparse
 
 from ..base import HostCapabilities
 from ...settings import Settings
@@ -17,6 +19,21 @@ DEFAULT_WIDGET_RESOURCE_DOMAINS = [
     "https://persistent.oaistatic.com",
     "https://d2e5822u5ecuq8.cloudfront.net",
 ]
+
+
+def resolve_ui_domain(widget_domain: str | None) -> str | None:
+    raw = (widget_domain or "").strip()
+    if not raw:
+        return None
+    if raw.endswith(".claudemcpcontent.com") and "://" not in raw:
+        return raw
+    parsed = urlparse(raw)
+    if parsed.scheme and parsed.netloc:
+        origin = f"{parsed.scheme}://{parsed.netloc}"
+        mcp_url = f"{origin.rstrip('/')}/mcp"
+        digest = hashlib.sha256(mcp_url.encode("utf-8")).hexdigest()[:32]
+        return f"{digest}.claudemcpcontent.com"
+    return raw
 
 
 @dataclass
@@ -76,8 +93,9 @@ class OpenAIHostAdapter:
                 "resourceDomains": resource_domains,
             }
         }
-        if self.settings and self.settings.xfloor_widget_domain:
-            ui_meta["domain"] = self.settings.xfloor_widget_domain
+        ui_domain = resolve_ui_domain(self.settings.xfloor_widget_domain if self.settings else None)
+        if ui_domain:
+            ui_meta["domain"] = ui_domain
 
         widget_csp = {
             "connectDomains": connect_domains,
@@ -133,8 +151,9 @@ class OpenAIHostAdapter:
                 "resourceDomains": resource_domains,
             }
         }
-        if self.settings and self.settings.xfloor_widget_domain:
-            ui_meta["domain"] = self.settings.xfloor_widget_domain
+        ui_domain = resolve_ui_domain(self.settings.xfloor_widget_domain if self.settings else None)
+        if ui_domain:
+            ui_meta["domain"] = ui_domain
 
         widget_csp = {
             "connectDomains": connect_domains,
@@ -192,7 +211,7 @@ class OpenAIHostAdapter:
                     "connectDomains": self.settings.xfloor_widget_connect_domains if self.settings else [],
                     "resourceDomains": resource_domains,
                 },
-                "domain": self.settings.xfloor_widget_domain if self.settings else None,
+                "domain": resolve_ui_domain(self.settings.xfloor_widget_domain if self.settings else None),
             }
         }
         query_registration_meta = {
@@ -201,7 +220,7 @@ class OpenAIHostAdapter:
                     "connectDomains": self.settings.xfloor_widget_connect_domains if self.settings else [],
                     "resourceDomains": resource_domains,
                 },
-                "domain": self.settings.xfloor_widget_domain if self.settings else None,
+                "domain": resolve_ui_domain(self.settings.xfloor_widget_domain if self.settings else None),
             }
         }
         logger.info(

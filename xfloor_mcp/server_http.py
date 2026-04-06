@@ -27,6 +27,7 @@ from .auth import (
 )
 from .hosts.factory import build_host_adapter
 from .hosts.openai.constants import QUERY_CURRENT_FLOOR_WIDGET_URI, SET_ACTIVE_FLOOR_WIDGET_URI, WIDGET_MIME_TYPE
+from .hosts.openai.adapter import resolve_ui_domain
 from .hosts.openai.widgets.set_active_floor import build_set_active_floor_preview_html
 from .hosts.openai.widgets.query_current_floor import build_query_current_floor_preview_html
 from .request_context import (
@@ -244,7 +245,7 @@ def create_http_app(settings: Settings) -> FastAPI:
                             "connectDomains": settings.xfloor_widget_connect_domains,
                             "resourceDomains": resource_domains,
                         },
-                        "domain": settings.xfloor_widget_domain,
+                        "domain": resolve_ui_domain(settings.xfloor_widget_domain),
                     },
                     "openai/widgetPrefersBorder": True,
                 }
