@@ -1,0 +1,1 @@
+"""OpenAI widget UI modules."""
