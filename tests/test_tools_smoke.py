@@ -1451,7 +1451,7 @@ def test_resources_list_returns_openai_widget_templates_for_discovery(monkeypatc
     assert "ui://widget/set-active-floor-v1.html" in uris
     assert "ui://widget/query-current-floor-v1.html" in uris
     first = resources[0]
-    assert first["_meta"]["ui"]["domain"] == "ab805be83cd6fe7d62575023734f6279.claudemcpcontent.com"
+    assert "domain" not in first["_meta"]["ui"]
     assert first["_meta"]["ui"]["csp"]["connectDomains"] == ["https://appfloor.in"]
     assert "https://d2e5822u5ecuq8.cloudfront.net" in first["_meta"]["ui"]["csp"]["resourceDomains"]
     assert first["_meta"]["openai/widgetPrefersBorder"] is True

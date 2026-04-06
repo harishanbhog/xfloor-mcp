@@ -4,10 +4,8 @@ from __future__ import annotations
 
 import logging
 import inspect
-import hashlib
 from dataclasses import dataclass
 from typing import Any
-from urllib.parse import urlparse
 
 from ..base import HostCapabilities
 from ...settings import Settings
@@ -22,18 +20,9 @@ DEFAULT_WIDGET_RESOURCE_DOMAINS = [
 
 
 def resolve_ui_domain(widget_domain: str | None) -> str | None:
-    raw = (widget_domain or "").strip()
-    if not raw:
-        return None
-    if raw.endswith(".claudemcpcontent.com") and "://" not in raw:
-        return raw
-    parsed = urlparse(raw)
-    if parsed.scheme and parsed.netloc:
-        origin = f"{parsed.scheme}://{parsed.netloc}"
-        mcp_url = f"{origin.rstrip('/')}/mcp"
-        digest = hashlib.sha256(mcp_url.encode("utf-8")).hexdigest()[:32]
-        return f"{digest}.claudemcpcontent.com"
-    return raw
+    # Temporarily disabled: some hosts rewrite this domain through sandbox loaders
+    # and can request non-existent module chunk paths.
+    return None
 
 
 @dataclass
@@ -205,24 +194,27 @@ class OpenAIHostAdapter:
                 + DEFAULT_WIDGET_RESOURCE_DOMAINS
             )
         )
+        ui_connect_domains = self.settings.xfloor_widget_connect_domains if self.settings else []
         set_active_registration_meta = {
             "ui": {
                 "csp": {
-                    "connectDomains": self.settings.xfloor_widget_connect_domains if self.settings else [],
+                    "connectDomains": ui_connect_domains,
                     "resourceDomains": resource_domains,
                 },
-                "domain": resolve_ui_domain(self.settings.xfloor_widget_domain if self.settings else None),
             }
         }
         query_registration_meta = {
             "ui": {
                 "csp": {
-                    "connectDomains": self.settings.xfloor_widget_connect_domains if self.settings else [],
+                    "connectDomains": ui_connect_domains,
                     "resourceDomains": resource_domains,
                 },
-                "domain": resolve_ui_domain(self.settings.xfloor_widget_domain if self.settings else None),
             }
         }
+        ui_domain = resolve_ui_domain(self.settings.xfloor_widget_domain if self.settings else None)
+        if ui_domain:
+            set_active_registration_meta["ui"]["domain"] = ui_domain
+            query_registration_meta["ui"]["domain"] = ui_domain
         logger.info(
             "openai query widget registration meta uri=%s ui_csp=%s ui_domain=%s",
             QUERY_CURRENT_FLOOR_WIDGET_URI,

@@ -245,10 +245,12 @@ def create_http_app(settings: Settings) -> FastAPI:
                             "connectDomains": settings.xfloor_widget_connect_domains,
                             "resourceDomains": resource_domains,
                         },
-                        "domain": resolve_ui_domain(settings.xfloor_widget_domain),
                     },
                     "openai/widgetPrefersBorder": True,
                 }
+                ui_domain = resolve_ui_domain(settings.xfloor_widget_domain)
+                if ui_domain:
+                    common_meta["ui"]["domain"] = ui_domain
                 resource_items = [
                     {
                         "uri": SET_ACTIVE_FLOOR_WIDGET_URI,
