@@ -9,6 +9,7 @@ WORKDIR /app
 
 COPY pyproject.toml README.md ./
 COPY xfloor_mcp ./xfloor_mcp
+COPY openai_widget/dist ./openai_widget/dist
 
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir .
