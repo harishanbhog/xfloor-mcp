@@ -44,6 +44,13 @@ def _load_inline_assets() -> tuple[str | None, str | None]:
     return style_text, script_text
 
 
+def _is_esm_script(script_text: str | None) -> bool:
+    if not script_text:
+        return False
+    normalized = script_text.lstrip()
+    return normalized.startswith("import ") or "\nimport " in normalized or "\nexport " in normalized
+
+
 def _build_widget_document(*, asset_base_url: str | None = None, preview_data: dict[str, Any] | None = None) -> str:
     preview_json = json.dumps(preview_data or {}, ensure_ascii=False).replace("</", "<\\/")
     base = _asset_base(asset_base_url)
@@ -55,9 +62,10 @@ def _build_widget_document(*, asset_base_url: str | None = None, preview_data: d
         if inline_style
         else f"<link rel=\"stylesheet\" href=\"{style_href}\" />"
     )
+    can_inline_non_module = inline_script and not _is_esm_script(inline_script)
     script_block = (
         f"<script>{inline_script}</script>"
-        if inline_script
+        if can_inline_non_module
         else f"<script type=\"module\" src=\"{script_src}\"></script>"
     )
     return f"""<!doctype html>
